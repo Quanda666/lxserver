@@ -94,133 +94,39 @@ let selectedItems = new Set(); // Set of item IDs
 let selectedSongObjects = new Map(); // Map of ID -> Song Object (for cross-page selection)
 let expandBtnTimeout = null; // 展开按钮淡化计时器
 
-// ===== 认证相关代码 =====
+// ===== 认证相关代码 (服务端 Cookie Session) =====
 let authEnabled = false;
+// authToken 保留用于 API 请求头 x-user-token（与播放器登录认证不同）
 let authToken = sessionStorage.getItem('lx_player_auth');
 
-// 检查认证状态
-async function checkAuth() {
-    console.log('[Auth] Starting checkAuth...');
+// 页面加载时：检查是否开启认证，若开启则显示登出按钮
+(async () => {
     try {
         const response = await fetch('/api/music/config');
         const config = await response.json();
-        console.log('[Auth] Config received:', config);
-
         authEnabled = config['player.enableAuth'] === true;
-        console.log('[Auth] authEnabled:', authEnabled, 'authToken:', authToken);
-
-        if (authEnabled && !authToken) {
-            // console.log('[Auth] Showing overlay (reason: enabled + no token)');
-            showAuthOverlay();
-        } else if (authEnabled && authToken) {
-            // 验证 token 是否有效
-            console.log('[Auth] Verifying token...');
-            const valid = await verifyAuthToken(authToken);
-            console.log('[Auth] Token valid?', valid);
-            if (!valid) {
-                // console.log('[Auth] Showing overlay (reason: token invalid)');
-                showAuthOverlay();
+        // 若开启认证，显示登出按钮
+        if (authEnabled) {
+            const logoutBtn = document.getElementById('logout-btn');
+            if (logoutBtn) {
+                logoutBtn.classList.remove('hidden');
+                logoutBtn.classList.add('flex');
             }
-        } else {
-            console.log('[Auth] No action needed');
         }
     } catch (error) {
-        console.error('[Auth] 检查认证状态失败:', error);
+        console.error('[Auth] 初始化检查失败:', error);
     }
-}
+})();
 
-// 显示认证遮罩
-function showAuthOverlay() {
-    const overlay = document.getElementById('auth-overlay');
-    if (overlay) {
-        overlay.classList.remove('hidden');
-        overlay.classList.add('flex');
-        setTimeout(() => {
-            const card = document.getElementById('auth-card');
-            if (card) {
-                card.style.transform = 'scale(1)';
-                card.style.opacity = '1';
-            }
-        }, 50);
-
-        // 聚焦到密码输入框
-        setTimeout(() => {
-            const input = document.getElementById('auth-password-input');
-            if (input) input.focus();
-        }, 300);
-    }
-}
-
-// 隐藏认证遮罩
-function hideAuthOverlay() {
-    const card = document.getElementById('auth-card');
-    if (card) {
-        card.style.transform = 'scale(0.95)';
-        card.style.opacity = '0';
-    }
-
-    setTimeout(() => {
-        const overlay = document.getElementById('auth-overlay');
-        if (overlay) {
-            overlay.classList.add('hidden');
-            overlay.classList.remove('flex');
-        }
-    }, 300);
-}
-
-// 处理认证提交
-async function handleAuthSubmit(event) {
-    event.preventDefault();
-    const password = document.getElementById('auth-password-input').value;
-    const errorDiv = document.getElementById('auth-error');
-
+// 登出：调用服务端清除 Session，跳转到登录页
+async function handleLogout() {
     try {
-        const response = await fetch('/api/music/auth', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password })
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-            authToken = result.token || password;
-            sessionStorage.setItem('lx_player_auth', authToken);
-            hideAuthOverlay();
-            errorDiv.classList.add('hidden');
-        } else {
-            errorDiv.classList.remove('hidden');
-            const input = document.getElementById('auth-password-input');
-            input.value = '';
-            input.classList.add('border-red-500');
-            setTimeout(() => {
-                input.classList.remove('border-red-500');
-            }, 500);
-        }
-    } catch (error) {
-        console.error('[Auth] 认证失败:', error);
-        errorDiv.classList.remove('hidden');
+        await fetch('/api/music/auth/logout', { method: 'POST' });
+    } catch (e) {
+        console.error('[Auth] 登出请求失败:', e);
     }
+    window.location.replace('/music/login');
 }
-
-// 验证 token
-async function verifyAuthToken(token) {
-    try {
-        const response = await fetch('/api/music/auth/verify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token })
-        });
-        const result = await response.json();
-        return result.valid === true;
-    } catch (error) {
-        console.error('[Auth] 验证 token 失败:', error);
-        return false;
-    }
-}
-
-// 页面加载时检查认证
-checkAuth();
 // ===== 认证代码结束 =====
 
 // 音质选择器初始化
@@ -427,20 +333,29 @@ function changeLyricFontSize(value) {
 }
 
 // 读取本地字体
-async function loadLocalFonts() {
+/**
+ * 通用加载本地字体逻辑
+ * @param {string} targetSelectId - 目标下拉框的 ID，默认为设置页的 'lyric-font-family-select'
+ * @param {HTMLElement} btnEl - 触发按钮的引用，用于显示加载动画
+ */
+async function loadLocalFonts(targetSelectId = 'lyric-font-family-select', btnEl = null) {
     if (!('queryLocalFonts' in window)) {
         alert('抱歉，您的浏览器不支持读取本地字体功能 (Local Font Access API)。\n建议使用 Chrome / Edge 浏览器，并确保在 HTTPS 环境下使用。');
         return;
     }
 
-    const btn = document.querySelector('button[onclick="loadLocalFonts()"]');
-    const originalText = btn.innerHTML;
+    const btn = btnEl || document.querySelector('button[onclick="loadLocalFonts()"]');
+    const originalText = btn ? btn.innerHTML : '';
+
     try {
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>读取中...';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>读取中...';
+        }
 
         const fonts = await window.queryLocalFonts();
-        const fontSelect = document.getElementById('lyric-font-family-select');
+        const fontSelect = document.getElementById(targetSelectId);
+        if (!fontSelect) return;
 
         // Use a set to store unique families
         const fontFamilies = new Set();
@@ -467,25 +382,23 @@ async function loadLocalFonts() {
 
         sortedFamilies.forEach(family => {
             const option = document.createElement('option');
-            option.value = family;
+            // 如果是歌词卡片，保持带引号格式；如果是设置页，保持原样（lyric-card.js 会处理字体族名称）
+            option.value = targetSelectId === 'lc-font-select' ? `"${family}", sans-serif` : family;
             option.textContent = family;
             group.appendChild(option);
         });
         fontSelect.appendChild(group);
 
-        // Restore selection if match
-        if (settings.lyricFontFamily) {
-            fontSelect.value = settings.lyricFontFamily;
-        }
-
-        alert(`成功获取 ${sortedFamilies.length} 个字体！`);
+        alert(`成功获取 ${sortedFamilies.length} 个本地字体！`);
 
     } catch (err) {
         console.error('[Font] Error loading fonts:', err);
         alert('获取字体失败: ' + err.message);
     } finally {
-        btn.disabled = false;
-        btn.innerHTML = originalText;
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
     }
 }
 
@@ -1216,6 +1129,7 @@ let hintTimeout = null;
 // --- Server Cache Helpers ---
 async function checkServerCache(song, quality) {
     try {
+        const username = currentListData?.username || '';
         const params = new URLSearchParams({
             name: song.name,
             singer: song.singer,
@@ -1224,10 +1138,18 @@ async function checkServerCache(song, quality) {
             songId: song.songId || song.id,
             quality: quality || ''
         });
-        const res = await fetch(`/api/music/cache/check?${params}`);
+        const headers = {};
+        if (username) headers['x-user-name'] = username;
+
+        const res = await fetch(`/api/music/cache/check?${params}`, { headers });
         if (res.ok) {
             const data = await res.json();
-            if (data.exists) return data.url;
+            if (data.exists) {
+                // Correctly format URL with username segment
+                const userPath = username || '_open';
+                const filename = data.filename || data.url.split('/').pop();
+                return `/api/music/cache/file/${encodeURIComponent(userPath)}/${filename}`;
+            }
         }
     } catch (e) { console.error('[ServerCache] Check failed:', e); }
     return null;
@@ -1236,9 +1158,13 @@ async function checkServerCache(song, quality) {
 async function triggerServerCache(song, url, quality) {
     try {
         console.log('[ServerCache] Triggering background download for:', song.name);
+        const username = currentListData?.username || '';
+        const headers = { 'Content-Type': 'application/json' };
+        if (username) headers['x-user-name'] = username;
+
         await fetch('/api/music/cache/download', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: headers,
             body: JSON.stringify({ songInfo: song, url, quality })
         });
     } catch (e) { console.error('[ServerCache] Trigger failed:', e); }
@@ -1267,6 +1193,7 @@ async function playSong(song, index, forceQuality = null, noPlay = false, isRetr
 
     currentIndex = index;
     currentPlayingSong = song;
+    window.currentPlayingSong = song; // expose for lyric-card.js
     updatePlayerInfo(song);
     updateMediaSessionMetadata(song);
 
@@ -2111,6 +2038,7 @@ async function restorePlaybackState() {
 
         currentIndex = state.index >= 0 ? state.index : 0;
         currentPlayingSong = state.song;
+        window.currentPlayingSong = state.song; // expose for lyric-card.js
 
         // 3. 更新 UI (静默更新)
         updatePlayerInfo(state.song);
@@ -2941,7 +2869,10 @@ async function updateServerCacheSize() {
         infoEl.textContent = '计算中...';
         infoEl.className = 'text-sm font-bold text-gray-500 bg-gray-50 px-2 py-1 rounded';
 
-        const response = await fetch('/api/music/cache/stats');
+        const username = currentListData?.username || '';
+        const headers = {};
+        if (username) headers['x-user-name'] = username;
+        const response = await fetch('/api/music/cache/stats', { headers });
         if (!response.ok) {
             throw new Error('获取缓存统计失败');
         }
@@ -2980,8 +2911,12 @@ async function clearServerCache() {
     if (!confirm('确定要清除所有服务器缓存的歌曲文件吗？\n此操作不可恢复！')) return;
 
     try {
+        const username = currentListData?.username || '';
+        const headers = {};
+        if (username) headers['x-user-name'] = username;
         const response = await fetch('/api/music/cache/clear', {
-            method: 'POST'
+            method: 'POST',
+            headers: headers
         });
 
         if (!response.ok) {
@@ -3137,6 +3072,7 @@ async function fetchLyric(song) {
                         },
                         onSetLyric: (lines, offset) => {
                             currentLyricLines = lines;
+                            window.currentLyricLines = lines; // expose for lyric-card.js
                             renderLyric(lines);
                         }
                     });
@@ -3222,6 +3158,7 @@ async function fetchLyric(song) {
                 },
                 onSetLyric: (lines, offset) => {
                     currentLyricLines = lines;
+                    window.currentLyricLines = lines; // expose for lyric-card.js
                     renderLyric(lines);
                 }
             });
@@ -3343,6 +3280,8 @@ function syncLyricByLineNum(lineNum) {
     // Check if index actually changed to update classes
     if (lineNum !== currentLyricIndex) {
         currentLyricIndex = lineNum;
+        window.currentLyricIndex = lineNum;   // expose for lyric-card.js
+        window.currentLyricLines = currentLyricLines; // expose for lyric-card.js
 
         // Remove active class from previous line
         const prev = container.querySelector('.active');

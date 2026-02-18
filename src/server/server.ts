@@ -17,6 +17,50 @@ const musicSdk = musicSdkRaw as any
 import { initUserApis, callUserApiGetMusicUrl, isSourceSupported, getLoadedApis } from './userApi'
 import * as customSourceHandlers from './customSourceHandlers'
 import * as fileCache from './fileCache'
+import crypto from 'node:crypto'
+
+// ===== Player Session Store =====
+const playerSessions = new Map<string, { createdAt: number }>()
+const SESSION_TTL = 24 * 60 * 60 * 1000 // 24小时
+const SESSION_COOKIE_NAME = 'lx_player_session'
+
+/** 生成随机 sessionId */
+const generateSessionId = () => crypto.randomBytes(32).toString('hex')
+
+/** 解析 Cookie 字符串 */
+const parseCookies = (cookieHeader: string | undefined): Record<string, string> => {
+  if (!cookieHeader) return {}
+  return Object.fromEntries(
+    cookieHeader.split(';').map(c => {
+      const [k, ...v] = c.trim().split('=')
+      return [k.trim(), decodeURIComponent(v.join('='))]
+    })
+  )
+}
+
+/** 检查请求是否携带有效的 Player Session Cookie */
+const checkPlayerAuth = (req: IncomingMessage): boolean => {
+  if (!global.lx.config['player.enableAuth']) return true // 未开启认证，直接放行
+  const cookies = parseCookies(req.headers['cookie'])
+  const sessionId = cookies[SESSION_COOKIE_NAME]
+  if (!sessionId) return false
+  const session = playerSessions.get(sessionId)
+  if (!session) return false
+  if (Date.now() - session.createdAt > SESSION_TTL) {
+    playerSessions.delete(sessionId)
+    return false
+  }
+  return true
+}
+
+/** 定期清理过期 Session（每小时） */
+setInterval(() => {
+  const now = Date.now()
+  for (const [id, session] of playerSessions) {
+    if (now - session.createdAt > SESSION_TTL) playerSessions.delete(id)
+  }
+}, 60 * 60 * 1000)
+// ===== End Session Store =====
 
 
 const getMime = (filename: string) => {
@@ -326,10 +370,29 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
 
     // Serve Music Player Static Files
     if (pathname.startsWith('/music')) {
+      // 白名单：登录页、静态资源无需认证
+      const isLoginPage = pathname === '/music/login' || pathname === '/music/login.html'
+      const isPublicAsset = pathname.startsWith('/music/assets/') ||
+        pathname.startsWith('/music/css/') ||
+        pathname.startsWith('/music/js/') ||
+        pathname === '/music/manifest.json' ||
+        pathname === '/music/sw.js'
+
+      // 认证检查：仅对主页面（非白名单）进行保护
+      if (!isLoginPage && !isPublicAsset && global.lx.config['player.enableAuth']) {
+        if (!checkPlayerAuth(req)) {
+          res.writeHead(302, { 'Location': '/music/login' })
+          res.end()
+          return
+        }
+      }
+
       // Defaults to index.html if exactly /music or /music/
       let targetPath = pathname
       if (pathname === '/music' || pathname === '/music/') {
         targetPath = '/music/index.html'
+      } else if (isLoginPage) {
+        targetPath = '/music/login.html'
       }
       // public/music/xxx
       // global.lx.staticPath points to `public`
@@ -980,7 +1043,8 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
           return
         }
 
-        const result = fileCache.checkCache({ name, singer, source, songmid, songId, quality })
+        const username = req.headers['x-user-name'] as string
+        const result = fileCache.checkCache({ name, singer, source, songmid, songId, quality }, username)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(result))
         return
@@ -998,8 +1062,9 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
             }
 
             // Fire and forget (background download)
-            void fileCache.downloadAndCache(songInfo, url, quality)
-              .then(() => console.log(`[Cache] Downloaded ${songInfo.name}`))
+            const username = req.headers['x-user-name'] as string
+            void fileCache.downloadAndCache(songInfo, url, quality, username)
+              .then(() => console.log(`[Cache] Downloaded ${songInfo.name} for ${username || '_open'}`))
               .catch(err => console.error(`[Cache] Failed to download ${songInfo.name}:`, err))
 
             res.writeHead(200)
@@ -1014,17 +1079,21 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
 
       // 4. Serve Cached File
       if (pathname.startsWith('/api/music/cache/file/')) {
-        const filename = pathname.replace('/api/music/cache/file/', '')
+        const parts = pathname.replace('/api/music/cache/file/', '').split('/')
+        const username = parts.length > 1 ? decodeURIComponent(parts[0]) : '_open'
+        const filename = parts.length > 1 ? parts[1] : parts[0]
+
         if (filename) {
-          fileCache.serveCacheFile(req, res, decodeURIComponent(filename))
+          fileCache.serveCacheFile(req, res, decodeURIComponent(filename), username)
           return
         }
       }
 
       // 5. Get Cache Statistics
       if (pathname === '/api/music/cache/stats' && req.method === 'GET') {
+        const username = req.headers['x-user-name'] as string
         try {
-          const stats = fileCache.getCacheStats()
+          const stats = fileCache.getCacheStats(username)
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ success: true, data: stats }))
         } catch (e: any) {
@@ -1036,8 +1105,9 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
 
       // 6. Clear All Cache
       if (pathname === '/api/music/cache/clear' && req.method === 'POST') {
+        const username = req.headers['x-user-name'] as string
         try {
-          const result = fileCache.clearAllCache()
+          const result = fileCache.clearAllCache(username)
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ success: true, data: result }))
         } catch (e: any) {
@@ -1450,7 +1520,7 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
         return
       }
 
-      // [新增] Web播放器认证 API
+      // [新增] Web播放器认证 API（颁发 HttpOnly Cookie Session）
       if (pathname === '/api/music/auth' && req.method === 'POST') {
         void readBody(req).then(body => {
           try {
@@ -1458,8 +1528,13 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
             const correctPassword = global.lx.config['player.password'] || ''
 
             if (password === correctPassword) {
-              res.writeHead(200, { 'Content-Type': 'application/json' })
-              res.end(JSON.stringify({ success: true, token: password }))
+              const sessionId = generateSessionId()
+              playerSessions.set(sessionId, { createdAt: Date.now() })
+              res.writeHead(200, {
+                'Content-Type': 'application/json',
+                'Set-Cookie': `${SESSION_COOKIE_NAME}=${sessionId}; HttpOnly; Path=/; SameSite=Strict; Max-Age=${SESSION_TTL / 1000}`
+              })
+              res.end(JSON.stringify({ success: true }))
             } else {
               res.writeHead(200, { 'Content-Type': 'application/json' })
               res.end(JSON.stringify({ success: false }))
@@ -1472,20 +1547,23 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
         return
       }
 
-      // [新增] Web播放器认证验证 API
-      if (pathname === '/api/music/auth/verify' && req.method === 'POST') {
-        void readBody(req).then(body => {
-          try {
-            const { token } = JSON.parse(body)
-            const correctPassword = global.lx.config['player.password'] || ''
-
-            res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ valid: token === correctPassword }))
-          } catch (err: any) {
-            res.writeHead(500)
-            res.end(JSON.stringify({ valid: false, error: err.message }))
-          }
+      // [新增] Web播放器登出 API（清除 Session Cookie）
+      if (pathname === '/api/music/auth/logout' && req.method === 'POST') {
+        const cookies = parseCookies(req.headers['cookie'])
+        const sessionId = cookies[SESSION_COOKIE_NAME]
+        if (sessionId) playerSessions.delete(sessionId)
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Set-Cookie': `${SESSION_COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0`
         })
+        res.end(JSON.stringify({ success: true }))
+        return
+      }
+
+      // [新增] Web播放器认证状态检查 API
+      if (pathname === '/api/music/auth/verify' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ valid: checkPlayerAuth(req) }))
         return
       }
 

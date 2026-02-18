@@ -14,17 +14,22 @@ export const CACHE_ROOTS = {
 let currentCacheLocation = CACHE_ROOTS.ROOT
 
 // Helper to get actual directory path
-const getCacheDir = () => {
+const getCacheDir = (username?: string) => {
+    let baseDir = ''
     if (currentCacheLocation === CACHE_ROOTS.DATA) {
-        return path.join(global.lx.dataPath, 'cache')
+        baseDir = path.join(global.lx.dataPath, 'cache')
     } else {
-        return path.join(process.cwd(), 'cache')
+        baseDir = path.join(process.cwd(), 'cache')
     }
+
+    // [New] Segment cache by username
+    const userDirName = (username && username !== '_open') ? username : '_open'
+    return path.join(baseDir, userDirName)
 }
 
 // Ensure directory exists
-const ensureDir = () => {
-    const dir = getCacheDir()
+const ensureDir = (username?: string) => {
+    const dir = getCacheDir(username)
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true })
     }
@@ -65,13 +70,13 @@ const getFileName = (songInfo: any, quality?: string) => {
 export const setCacheLocation = (location: string) => {
     if (location === CACHE_ROOTS.DATA || location === CACHE_ROOTS.ROOT) {
         currentCacheLocation = location
-        console.log(`[FileCache] Cache location set to: ${location} (${getCacheDir()})`)
+        console.log(`[FileCache] Base cache location set to: ${location}`)
     }
 }
 
-export const checkCache = (songInfo: any) => {
+export const checkCache = (songInfo: any, username?: string) => {
     // songInfo comes from query params, should contain 'quality'
-    const dir = getCacheDir()
+    const dir = getCacheDir(username)
     const baseName = getFileName(songInfo, songInfo.quality)
 
     // Check for common audio extensions
@@ -95,8 +100,8 @@ export const checkCache = (songInfo: any) => {
     return { exists: false }
 }
 
-export const downloadAndCache = async (songInfo: any, url: string, quality?: string) => {
-    const dir = ensureDir()
+export const downloadAndCache = async (songInfo: any, url: string, quality?: string, username?: string) => {
+    const dir = ensureDir(username)
     const baseName = getFileName(songInfo, quality)
     const tempPath = path.join(dir, baseName + '.tmp')
 
@@ -154,8 +159,8 @@ export const downloadAndCache = async (songInfo: any, url: string, quality?: str
     })
 }
 
-export const serveCacheFile = (req: http.IncomingMessage, res: http.ServerResponse, filename: string) => {
-    const dir = getCacheDir()
+export const serveCacheFile = (req: http.IncomingMessage, res: http.ServerResponse, filename: string, username?: string) => {
+    const dir = getCacheDir(username)
     // Prevent directory traversal
     const safeFilename = path.basename(filename)
     const filePath = path.join(dir, safeFilename)
@@ -208,8 +213,8 @@ export const serveCacheFile = (req: http.IncomingMessage, res: http.ServerRespon
 }
 
 // Get cache statistics
-export const getCacheStats = () => {
-    const dir = getCacheDir()
+export const getCacheStats = (username?: string) => {
+    const dir = getCacheDir(username)
 
     if (!fs.existsSync(dir)) {
         return { totalSize: 0, fileCount: 0 }
@@ -239,8 +244,8 @@ export const getCacheStats = () => {
 }
 
 // Clear all cache files
-export const clearAllCache = () => {
-    const dir = getCacheDir()
+export const clearAllCache = (username?: string) => {
+    const dir = getCacheDir(username)
 
     if (!fs.existsSync(dir)) {
         return { deletedCount: 0, freedSize: 0 }
