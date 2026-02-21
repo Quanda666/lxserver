@@ -4,8 +4,11 @@ export default defineConfig({
   title: "LX Sync Server",
   description: "一个增强版的 LX Music 数据同步服务端与 Web 播放器",
   base: "/lxserver/", // Assuming GitHub Pages is deployed under the repo name 'lxserver'
+  head: [
+    ['link', { rel: 'icon', href: '/lxserver/icon.svg' }]
+  ],
   themeConfig: {
-    logo: 'https://raw.githubusercontent.com/XCQ0607/lxserver/refs/heads/main/public/icon.svg',
+    logo: '/icon.svg',
     nav: [
       { text: '首页', link: '/' },
       { text: '用户指南', link: '/guide/getting-started' },

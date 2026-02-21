@@ -6,7 +6,7 @@ hero:
   text: "云端同步与播放的完美结合"
   tagline: "一个支持各大音乐平台搜索、在线播放以及数据云端同步的服务系统"
   image:
-    src: https://raw.githubusercontent.com/XCQ0607/lxserver/refs/heads/main/public/icon.svg
+    src: /icon.svg
     alt: LX Sync Server
   actions:
     - theme: brand

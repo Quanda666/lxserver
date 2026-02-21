@@ -19,7 +19,7 @@
   </p>
 </div>
 
-[SyncServer](md/lxserver_EN.md) | [Changelog](changelog.md) | [中文版](README.md)
+[Documentation](https://xcq0607.github.io/lxserver/) | [SyncServer](md/lxserver_EN.md) | [Changelog](changelog.md) | [中文版](README.md)
 
 This project features a powerful built-in **Web Player**, allowing you to enjoy music anywhere in your browser. It also serves as an enhanced [LX Music Data Sync Server](md/lxserver_EN.md).
 

@@ -19,7 +19,7 @@
   </p>
 </div>
 
-[WebPlayer](../README_EN.md) | [Changelog](changelog.md)
+[Documentation](https://xcq0607.github.io/lxserver/) | [WebPlayer](../README_EN.md) | [Changelog](changelog.md)
 
 This project provides both a powerful [WebPlayer](../README_EN.md) and a professional **LX Music Data Sync Service** with a Web visualization dashboard.
 

@@ -4709,8 +4709,8 @@ async function renderCustomSources() {
             }
 
             div.innerHTML = `
-            <div class="flex items-center self-stretch cursor-grab custom-source-handle text-gray-300 hover:text-emerald-500 pr-3 -ml-2 transition-colors" title="拖拽排序">
-                <i class="fas fa-grip-vertical"></i>
+            <div class="flex items-center self-stretch cursor-grab custom-source-handle text-gray-400 hover:text-emerald-500 pr-4 -ml-2 transition-all active:scale-110 touch-none" title="拖拽排序">
+                <i class="fas fa-grip-vertical text-lg"></i>
             </div>
             <div class="flex justify-between items-start flex-1 min-w-0">
                 <div class="flex-1 pr-4 min-w-0">
@@ -4760,13 +4760,40 @@ async function renderCustomSources() {
             container.appendChild(div);
         });
 
-        // Add Sortable
+        // Add Sortable (Optimized for Mobile)
         if (typeof Sortable !== 'undefined') {
+            // Destroy existing instance to avoid duplicates
+            try {
+                const oldSortable = Sortable.get(container);
+                if (oldSortable) oldSortable.destroy();
+            } catch (e) { }
+
             Sortable.create(container, {
-                animation: 150,
+                animation: 200,
                 handle: '.custom-source-handle',
-                ghostClass: 'opacity-50',
+                ghostClass: 'sortable-ghost-solid',
+                chosenClass: 'sortable-chosen-item',
+                dragClass: 'opacity-0',
+
+                // 核心配置
+                forceFallback: true,
+                fallbackOnBody: false,
+                fallbackTolerance: 0,
+
+                // 响应优化
+                delay: 0,
+                touchStartThreshold: 3,
+
+                // 排序逻辑
+                swapThreshold: 0.5,
+                invertSwap: true,
+                direction: 'vertical',
+
+                onStart: function () {
+                    document.body.classList.add('select-none');
+                },
                 onEnd: async function (evt) {
+                    document.body.classList.remove('select-none');
                     const items = Array.from(container.querySelectorAll('.source-item'));
 
                     // Parse current state from DOM after drag
