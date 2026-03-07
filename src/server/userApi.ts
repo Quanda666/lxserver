@@ -393,7 +393,8 @@ export async function callUserApiGetMusicUrl(
     source: string,
     songInfo: any,
     quality: string,
-    clientUsername?: string
+    clientUsername?: string,
+    onProgress?: (attempt: any) => Promise<void> | void
 ): Promise<{ url: string, type: string, sourceName?: string, attempts?: any[] }> {
     // 标准化 songInfo 格式：将 meta 中的字段提升到顶层
     const normalizedSongInfo = { ...songInfo }
@@ -546,9 +547,9 @@ export async function callUserApiGetMusicUrl(
     supportedCount = candidates.length
 
     if (supportedCount === 0) {
-        // 如果没有找到源，可能是因为权限问题导致筛选后为空
-        // 检查是否存在该源但无权限访问的情况（可选，用于调试）
-        throw new Error(`未找到支持 ${source} 平台的自定义源，请在设置中添加或启用相关源 (User: ${clientUsername || 'Guest'})`)
+        const errMsg = `未找到支持 ${source} 平台的自定义源，请在设置中添加或启用相关源`
+        if (onProgress) await onProgress({ name: '系统', status: 'fail', message: errMsg })
+        throw new Error(errMsg)
     }
 
     // 逻辑分歧：
@@ -571,12 +572,16 @@ export async function callUserApiGetMusicUrl(
                 })
 
                 console.log(`[UserApi] ✓ ${api.info.name} 成功返回链接 (Owner: ${api.info.owner})`)
-                attempts.push({ name: api.info.name, status: 'success', message: `第 ${i + 1} 次尝试成功` })
+                const att = { name: api.info.name, status: 'success', message: `第 ${i + 1} 次尝试成功` }
+                attempts.push(att)
+                if (onProgress) await onProgress(att)
                 return { url, type: quality, sourceName: api.info.name, attempts }
             } catch (error: any) {
-                console.error(`[UserApi] ${api.info.name} 失败 (第 ${i + 1}/${maxRetries} 次):`, error.message)
+                console.error(`[UserApi] ${api.info.name} 失败 (第 ${i + 1}/${maxRetries} 次):`, `音源日志：${error.message}`)
                 lastError = error
-                attempts.push({ name: api.info.name, status: 'fail', message: `第 ${i + 1} 次尝试失败: ${error.message}` })
+                const att = { name: api.info.name, status: 'fail', message: `第 ${i + 1} 次尝试失败,音源日志：${error.message}` }
+                attempts.push(att)
+                if (onProgress) await onProgress(att)
                 // 如果不是最后一次尝试，等待一小会儿
                 if (i < maxRetries - 1) {
                     await new Promise(r => setTimeout(r, 1000))
@@ -595,22 +600,26 @@ export async function callUserApiGetMusicUrl(
                 })
 
                 console.log(`[UserApi] ✓ ${api.info.name} 成功返回链接 (Owner: ${api.info.owner})`)
-                attempts.push({ name: api.info.name, status: 'success' })
+                const att = { name: api.info.name, status: 'success' }
+                attempts.push(att)
+                if (onProgress) await onProgress(att)
                 return { url, type: quality, sourceName: api.info.name, attempts }
             } catch (error: any) {
-                console.error(`[UserApi] ${api.info.name} 失败:`, error.message)
+                console.error(`[UserApi] ${api.info.name} 失败:`, `音源日志：${error.message}`)
                 lastError = error
-                attempts.push({ name: api.info.name, status: 'fail', message: error.message })
+                const att = { name: api.info.name, status: 'fail', message: `音源日志：${error.message}` }
+                attempts.push(att)
+                if (onProgress) await onProgress(att)
                 continue
             }
         }
     }
 
     const detailMsg = supportedCount === 1
-        ? `单音源 [${candidates[0].info.name}] 连续 3 次尝试均失败`
-        : `已尝试全部 ${supportedCount} 个支持 ${source} 的自定义音源，但全部失败`
+        ? `自定义源 [${candidates[0].info.name}] 解析失败`
+        : `已尝试了 ${supportedCount} 个支持 ${source} 平台的源，但全部解析失败`
 
-    const finalError: any = new Error(`${detailMsg}。最后错误: ${lastError?.message}`)
+    const finalError: any = new Error(`${detailMsg} (音源日志: ${lastError?.message})`)
     finalError.attempts = attempts
     throw finalError
 }

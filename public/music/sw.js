@@ -1,20 +1,41 @@
-const CACHE_NAME = 'lx-music-web-v1';
+const CACHE_NAME = 'lx-music-web-v3';
 const ASSETS_TO_CACHE = [
     '/music/',
     '/music/index.html',
-    '/music/style.css',
+    '/music/login.html',
     '/music/app.js',
+    // CSS
+    '/music/css/theme_variables.css',
+    '/music/assets/fontawesome/css/all.min.css',
+    // 核心 JS
     '/music/js/lyric-parser.js',
     '/music/js/lyric-utils.js',
+    '/music/js/lyric-card.js',
     '/music/js/quality.js',
     '/music/js/user_sync.js',
     '/music/js/batch_pagination.js',
     '/music/js/single_song_ops.js',
+    '/music/js/songlist_manager.js',
     '/music/js/pwa.js',
-    '/music/assets/logo.svg',
+    '/music/js/theme_manager.js',
+    '/music/js/tailwind_setup.js',
+    '/music/js/log_viewer.js',
+    // 第三方库
     '/music/assets/tailwindcss.js',
-    '/music/assets/fontawesome/css/all.min.css',
-    '/music/js/crypto-js.min.js'
+    '/music/js/crypto-js.min.js',
+    '/music/js/NoSleep.min.js',
+    '/music/js/Sortable.min.js',
+    '/music/js/marked.min.js',
+    // 音频效果
+    '/music/js/sound-effects.js',
+    '/music/js/visualizer.js',
+    '/music/js/wave.js',
+    // 变调器
+    '/music/js/pitch-shifter/fft.js',
+    '/music/js/pitch-shifter/ola-processor.js',
+    '/music/js/pitch-shifter/phase-vocoder.js',
+    // 静态资源
+    '/music/assets/logo.svg',
 ];
 
 const AUDIO_CACHE_NAME = 'lx-music-audio-v1';
@@ -82,12 +103,15 @@ self.addEventListener('fetch', (event) => {
     );
 });
 
+const KNOWN_CACHES = [CACHE_NAME, AUDIO_CACHE_NAME];
+
 self.addEventListener('activate', (event) => {
     event.waitUntil(
         caches.keys().then((cacheNames) => {
             return Promise.all(
                 cacheNames.map((cacheName) => {
-                    if (cacheName !== CACHE_NAME) {
+                    if (!KNOWN_CACHES.includes(cacheName)) {
+                        console.log('[SW] Deleting old cache:', cacheName);
                         return caches.delete(cacheName);
                     }
                 })

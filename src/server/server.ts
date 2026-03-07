@@ -160,6 +160,8 @@ let status: LX.Sync.Status = {
 
 let host = 'http://localhost'
 const sseClients = new Set<http.ServerResponse>()
+// 音乐解析进度 SSE 专属通道: requestId -> response
+const musicProgressClients = new Map<string, http.ServerResponse>()
 
 // const codeTools: {
 //   timeout: NodeJS.Timer | null
@@ -1706,11 +1708,49 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
         return
       }
 
+      // [新增] 音乐解析进度 SSE 端点 (无需登录, 用 requestId 区分)
+      if (pathname === '/api/music/progress' && req.method === 'GET') {
+        const reqId = urlObj.searchParams.get('reqId')
+        if (!reqId) {
+          res.writeHead(400)
+          res.end('Missing reqId')
+          return
+        }
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'Access-Control-Allow-Origin': '*',
+        })
+        res.write('retry: 3000\n\n')
+        musicProgressClients.set(reqId, res)
+        req.on('close', () => {
+          musicProgressClients.delete(reqId)
+        })
+        return
+      }
+
       // [新增] 音乐 URL API
       if (pathname === '/api/music/url' && req.method === 'POST') {
         const clientUsername = req.headers['x-user-name'] as string | undefined
+        const clientId = req.headers['x-client-id'] as string | undefined
+        const reqId = req.headers['x-req-id'] as string | undefined
 
         void readBody(req).then(async body => {
+          // 辅助：通过 SSE 推送进度（内置竞态重试，最多等 600ms 让 SSE 连接就绪）
+          const pushProgress = async (attempt: any, retries = 3): Promise<void> => {
+            if (reqId && musicProgressClients.has(reqId)) {
+              musicProgressClients.get(reqId)!.write(`data: ${JSON.stringify(attempt)}\n\n`)
+              return
+            }
+            if (retries > 0) {
+              await new Promise(r => setTimeout(r, 200))
+              await pushProgress(attempt, retries - 1)
+            } else if (reqId) {
+              console.warn(`[SSE] ReqId ${reqId} not found after retries (${musicProgressClients.size} clients registered)`)
+            }
+          }
+
           try {
             let { songInfo, quality } = JSON.parse(body)
             songInfo = normalizeSongInfo(songInfo)
@@ -1725,8 +1765,12 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
             let attempts: any[] = []
             if (isSourceSupported(source, clientUsername)) {
               try {
-                console.log(`[MusicUrl] Using custom source for: ${source} (User: ${clientUsername || 'Guest'})`)
-                const userApiResult = await callUserApiGetMusicUrl(source, songInfo, quality || '128k', clientUsername)
+                console.log(`[MusicUrl] Using custom source for: ${source} (ReqId: ${reqId || 'None'})`)
+
+                const userApiResult = await callUserApiGetMusicUrl(
+                  source, songInfo, quality || '128k', clientUsername,
+                  (attempt) => pushProgress(attempt)
+                )
                 result = userApiResult
                 attempts = userApiResult.attempts || []
               } catch (userApiError: any) {
@@ -1735,28 +1779,21 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
                 attempts = userApiError.attempts || []
                 // 不抛出错误，继续尝试内置源
               }
+            } else {
+              // isSourceSupported = false: 无任何自定义源支持此平台，立即通知前端
+              await pushProgress({ name: '系统', status: 'fail', message: `未找到支持 ${source} 平台的自定义源，请在设置中添加或启用相关源` })
             }
 
-            // 回退到内置 musicSdk
+            // 自定义源失败则直接报错（内置 SDK 无独立解析能力，回退无意义）
             if (!result) {
-              if (!musicSdk[source] || !musicSdk[source].getMusicUrl) {
-                // 如果内置也不支持，且自定义源也报错了，合并错误抛出
-                if (customSourceError) {
-                  const err: any = new Error(`自定义源获取失败: ${customSourceError}`)
-                  err.attempts = attempts
-                  throw err
-                }
-                throw new Error(`Source ${source} not supported`)
-              }
-              console.log(`[MusicUrl] Using built-in musicSdk for: ${source}`)
-              result = await musicSdk[source].getMusicUrl(songInfo, quality || '128k')
+              const errMsg = customSourceError || `未找到支持 ${source} 平台的自定义源，请在设置中添加或启用相关源`
+              const err: any = new Error(errMsg)
+              err.attempts = attempts
+              throw err
             }
 
-            // 合并自定义源的错误消息和尝试记录用于前端提示
-            if (result) {
-              if (customSourceError) result.errorMsg = customSourceError
-              if (attempts.length > 0) result.attempts = attempts
-            }
+            // 合并解析尝试记录到响应（前端可用于诊断）
+            if (attempts.length > 0) result.attempts = attempts
 
             // [Fix] Server-side Mixed Content handling & Redirect Resolution
             // If the upstream URL is HTTP, rewrite it to use our secure proxy OR resolve it if it's a redirect

@@ -94,6 +94,8 @@ try {
 }
 window.settings = settings; // 显式挂载到 window
 
+
+
 // Initial Sync for Server Cache Config
 setTimeout(() => {
     if (settings.serverCacheLocation && window.updateServerCacheConfig) {
@@ -629,7 +631,11 @@ function renderQueue() {
                 
                 <div class="flex-1 min-w-0">
                     <div class="text-sm font-bold truncate ${isActive ? 'text-emerald-500' : 't-text-main'}">${song.name}</div>
-                    <div class="text-[10px] t-text-muted truncate mt-0.5">${song.singer}</div>
+                    <div class="flex items-center gap-1 mt-0.5 overflow-hidden">
+                        ${getSourceTag(song.source)}
+                        ${getQualityTags(song)}
+                        <div class="text-[10px] t-text-muted truncate">${song.singer}</div>
+                    </div>
                 </div>
 
                 <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1138,12 +1144,13 @@ function getQualityTags(item) {
         hasHiRes = !!rawTypes['flac24bit'];
     }
 
-    if (hasHiRes) tags.push('<span class="px-1 py-0.5 rounded text-[10px] t-badge-yellow border border-yellow-200 dark:border-yellow-500/30 ml-1 transition-colors">HR</span>');
-    else if (hasFlac) tags.push('<span class="px-1 py-0.5 rounded text-[10px] t-badge-green border border-emerald-200 dark:border-emerald-500/30 ml-1 transition-colors">SQ</span>');
-    else if (has320) tags.push('<span class="px-1 py-0.5 rounded text-[10px] t-badge-blue border border-blue-200 dark:border-blue-500/30 ml-1 transition-colors">HQ</span>');
+    if (hasHiRes) tags.push('<span class="px-1 py-0 rounded text-[10px] t-badge-yellow border border-yellow-200 dark:border-yellow-500/30 transition-colors">HR</span>');
+    else if (hasFlac) tags.push('<span class="px-1 py-0 rounded text-[10px] t-badge-green border border-emerald-200 dark:border-emerald-500/30 transition-colors">SQ</span>');
+    else if (has320) tags.push('<span class="px-1 py-0 rounded text-[10px] t-badge-blue border border-blue-200 dark:border-blue-500/30 transition-colors">HQ</span>');
 
     return tags.join('');
 }
+window.getQualityTags = getQualityTags;
 
 function getSourceTag(source) {
     const colors = {
@@ -1156,8 +1163,9 @@ function getSourceTag(source) {
     const names = { kw: '酷我', kg: '酷狗', tx: 'QQ', wy: '网易', mg: '咪咕' };
     const color = colors[source] || 't-bg-main t-text-muted t-border-main';
     const name = names[source] || source.toUpperCase();
-    return `<span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold border ${color} mr-2">${name}</span>`;
+    return `<span class="px-1 py-0 rounded text-[10px] font-bold border ${color} mr-1">${name}</span>`;
 }
+window.getSourceTag = getSourceTag;
 
 
 
@@ -1453,12 +1461,41 @@ function getSourceTypeText(sourceType) {
     return map[sourceType] || '解析成功';
 }
 
-// --- Prefetch Management ---
+// --- Expiration & Prefetch Management ---
+/**
+ * 探活 URL 是否依然有效 (不下载数据，仅检查响应状态)
+ * @param {string} url 
+ * @returns {Promise<boolean>}
+ */
+async function probeUrl(url) {
+    if (!url) return false;
+    // 本地 API 或 代理路径通常被认为有效
+    if (url.startsWith('/') || url.includes(window.location.host)) return true;
+
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超时
+
+        // 使用 Range 请求 0-1 字节，以最小代价触发 CORS 检查和链接有效性验证
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: { 'Range': 'bytes=0-1' },
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        // 返回 200 或 206 表示链接依然可用
+        return response.ok;
+    } catch (e) {
+        console.warn(`[Probe] URL probe failed: ${url.substring(0, 40)}...`, e.message);
+        return false;
+    }
+}
+
 const prefetchManager = {
     cache: new Map(), // Map<songId, {url, quality, sourceType, timestamp}>
     set(songId, data) {
         this.cache.set(songId, { ...data, timestamp: Date.now() });
-        // Keep cache small (e.g., 2 items: current and next)
         if (this.cache.size > 5) {
             const oldestKey = this.cache.keys().next().value;
             this.cache.delete(oldestKey);
@@ -1466,7 +1503,7 @@ const prefetchManager = {
     },
     get(songId) {
         const data = this.cache.get(songId);
-        if (data && (Date.now() - data.timestamp < 30 * 60 * 1000)) { // 30 mins validity
+        if (data && (Date.now() - data.timestamp < 30 * 60 * 1000)) {
             return data;
         }
         return null;
@@ -1476,78 +1513,119 @@ const prefetchManager = {
     }
 };
 
-// --- URL Fetching Logic (Extracted) ---
-async function fetchSongUrl(song, quality, isRetry = false) {
+// --- URL Fetching Logic (Unified Resolution) ---
+
+/**
+ * 统一的歌曲解析入口，支持播放和预读调用
+ * 包含：本地/服务器缓存检查、在线解析、自动降级逻辑
+ */
+async function resolveSongUrl(song, quality, isSilent = false, isRetry = false) {
+    try {
+        const result = await fetchSongUrl(song, quality, isRetry, isSilent);
+        if (result.errorMsg) throw new Error(result.errorMsg);
+        return result;
+    } catch (error) {
+        // 区分“平台不支持”和“解析失败”
+        const isPlatformNotSupported = error.message && (
+            error.message.includes('未找到支持') ||
+            error.message.includes('not supported')
+        );
+
+        // 如果不是平台问题，且还有下级音质，递归尝试降级
+        const nextQuality = isPlatformNotSupported ? null : window.QualityManager.getNextLowerQuality(quality, song);
+
+        if (nextQuality) {
+            if (!isSilent) {
+                const fromName = window.QualityManager.getQualityDisplayName(quality);
+                const toName = window.QualityManager.getQualityDisplayName(nextQuality);
+                showInfo(`从 ${fromName} 降级到 ${toName} 播放...`);
+            }
+            return await resolveSongUrl(song, nextQuality, isSilent, true);
+        }
+        throw error;
+    }
+}
+
+async function fetchSongUrl(song, quality, isRetry = false, isSilent = false) {
     const cleanedSong = cleanSongData(song);
     const cacheKey = `lx_url_${cleanedSong.id}_${quality}`;
 
-    // 1. Try Server Cache
     const allowServerCache = !isRetry && settings.enableServerCache;
     if (allowServerCache) {
         const serverCacheUrl = await checkServerCache(cleanedSong, quality);
-        if (serverCacheUrl) {
-            return { url: serverCacheUrl, sourceType: 'server_cache', quality };
-        }
+        if (serverCacheUrl) return { url: serverCacheUrl, sourceType: 'server_cache', quality };
     }
 
-    // 2. Try Link Cache (browser storage)
     const allowLinkCache = (!isRetry || isRetry === 'local_retry') && settings.enableSongUrlCache !== false;
     if (allowLinkCache) {
         const cachedUrl = localStorage.getItem(cacheKey);
-        if (cachedUrl) {
-            return { url: cachedUrl, sourceType: 'cache', quality };
-        }
+        if (cachedUrl) return { url: cachedUrl, sourceType: 'cache', quality };
     }
 
-    // 3. Online Fetch
+    const reqId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    let progressEs = null;
+    try {
+        progressEs = new EventSource(`/api/music/progress?reqId=${reqId}`);
+        progressEs.onmessage = (e) => {
+            if (isSilent) return;
+            try {
+                const attempt = JSON.parse(e.data);
+                const msg = `[${attempt.name}] ${attempt.message || (attempt.status === 'success' ? '解析成功' : '解析失败')}`;
+                if (attempt.status === 'success') showSuccess(msg);
+                else showError(msg);
+            } catch (_) { }
+        };
+    } catch (_) { }
+
     const headers = { 'Content-Type': 'application/json' };
     if (typeof authToken !== 'undefined' && authToken) headers['x-user-token'] = authToken;
     if (typeof currentListData !== 'undefined' && currentListData && currentListData.username) {
         headers['x-user-name'] = currentListData.username;
     }
+    headers['x-req-id'] = reqId;
 
-    const res = await fetch(`${API_BASE}/url`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ songInfo: song, quality })
-    });
+    try {
+        const res = await fetch(`${API_BASE}/url`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ songInfo: song, quality })
+        });
 
-    if (!res.ok) {
-        let errorMsg = `HTTP ${res.status}`;
-        let result = {};
-        try {
-            result = await res.json();
-            if (result.error) errorMsg = result.error;
-        } catch (e) { }
-        throw { message: errorMsg, attempts: result.attempts };
-    }
-
-    const result = await res.json();
-    if (result.url) {
-        // Cache globally in browser
-        if (settings.enableSongUrlCache !== false) {
+        if (!res.ok) {
+            let errorMsg = `HTTP ${res.status}`;
+            let result = {};
             try {
-                localStorage.setItem(cacheKey, result.url);
-                updateStorageStatsUI();
+                result = await res.json();
+                if (result.error) errorMsg = result.error;
             } catch (e) { }
+            throw { message: errorMsg, attempts: result.attempts };
         }
-        // Trigger background download to server
-        if (settings.enableServerCache && !result.url.includes('/api/music/cache/file/')) {
-            triggerServerCache(song, result.url, quality);
+
+        const result = await res.json();
+        if (result.url) {
+            if (settings.enableSongUrlCache !== false) {
+                try {
+                    localStorage.setItem(cacheKey, result.url);
+                    updateStorageStatsUI();
+                } catch (e) { }
+            }
+            if (settings.enableServerCache && !result.url.includes('/api/music/cache/file/')) {
+                triggerServerCache(song, result.url, quality);
+            }
+            return {
+                url: result.url,
+                sourceType: 'normal',
+                quality: result.type || quality,
+                sourceName: result.sourceName,
+                errorMsg: result.errorMsg
+            };
         }
-        return {
-            url: result.url,
-            sourceType: 'normal',
-            quality: result.type || quality,
-            attempts: result.attempts,
-            sourceName: result.sourceName,
-            errorMsg: result.errorMsg
-        };
+        throw new Error('服务器未返回播放链接');
+    } finally {
+        if (progressEs) { progressEs.close(); progressEs = null; }
     }
-    throw new Error('服务器未返回播放链接');
 }
 
-// 获取下一首索引逻辑 (考虑播放模式)
 function getNextIndex() {
     if (!currentPlaylist || currentPlaylist.length === 0) return -1;
 
@@ -1578,25 +1656,53 @@ function getNextIndex() {
     return nextIndex;
 }
 
-// Prefetch next song helper
-async function prefetchNextSong() {
-    if (!settings.enablePreloader) return;
+// Prefetch next song helper (Recursive Discovery)
+async function prefetchNextSong(startFromIndex = null, depth = 0) {
+    if (settings.enablePreloader === false || depth > 5) return;
 
-    // Find next song in queue
-    const nextIndex = getNextIndex();
-    if (nextIndex === -1 || nextIndex === currentIndex) return;
+    const targetIndex = startFromIndex !== null ? startFromIndex : getNextIndex();
+    if (targetIndex === -1 || targetIndex === currentIndex) return;
 
-    const nextSong = currentPlaylist[nextIndex];
-    if (!nextSong || prefetchManager.get(nextSong.id)) return;
+    const nextSong = currentPlaylist[targetIndex];
+    if (!nextSong) return;
+
+    // 如果这首已经被标记为不可播放，拉下一首
+    if (nextSong._unplayable) {
+        const followingIndex = (targetIndex + 1) >= currentPlaylist.length ? 0 : targetIndex + 1;
+        return prefetchNextSong(followingIndex, depth + 1);
+    }
 
     try {
-        console.log(`[Prefetch] Starting prefetch for: ${nextSong.name}`);
-        const quality = window.QualityManager.getBestQuality(nextSong, settings.preferredQuality || '320k');
-        const result = await fetchSongUrl(nextSong, quality);
+        const targetQual = window.QualityManager.getBestQuality(nextSong, settings.preferredQuality || '320k');
+
+        // 1. 检查内存缓存
+        let result = prefetchManager.get(nextSong.id);
+        if (result) {
+            if (await probeUrl(result.url)) return;
+            prefetchManager.cache.delete(nextSong.id);
+        }
+
+        // 2. 复用统一解析逻辑 (resolveSongUrl)，且开启静默模式
+        result = await resolveSongUrl(nextSong, targetQual, true);
+
+        // 3. 探活获取到的链接
+        if (!(await probeUrl(result.url))) {
+            localStorage.removeItem(`lx_url_${cleanSongData(nextSong).id}_${result.quality}`);
+            result = await resolveSongUrl(nextSong, targetQual, true);
+        }
+
         prefetchManager.set(nextSong.id, result);
-        console.log(`[Prefetch] Successfully prefetched: ${nextSong.name}`);
+        console.log(`[Prefetch] Readied: ${nextSong.name}`);
+
     } catch (e) {
-        console.warn(`[Prefetch] Failed to prefetch ${nextSong.name}:`, e.message || e);
+        console.warn(`[Prefetch] Skip unplayable [${nextSong.name}]:`, e.message);
+        nextSong._unplayable = true; // 标记
+
+        // 递归探测
+        const followingIndex = (targetIndex + 1) >= currentPlaylist.length ? 0 : targetIndex + 1;
+        if (followingIndex !== currentIndex) {
+            return prefetchNextSong(followingIndex, depth + 1);
+        }
     }
 }
 
@@ -1745,49 +1851,40 @@ async function playSong(song, index, forceQuality = null, noPlay = false, isRetr
     }
     updatePlayButton(false); // 暂停按钮状态
 
+    let targetQuality = forceQuality;
     try {
-        // 智能音质选择
-        const quality = forceQuality || window.QualityManager.getBestQuality(
-            song,
-            settings.preferredQuality || '320k'
-        );
-
+        // 1. 智能音质选择与 URL 解析 (支持预读、缓存、解析和自动降级)
         let urlResult = null;
 
-        // 1. Check Prefetch Manager first (if not forceQuality/retry)
-        if (!forceQuality && !isRetry) {
+        if (!targetQuality && !isRetry) {
             urlResult = prefetchManager.get(song.id);
             if (urlResult) {
-                console.log(`[Player] Hit prefetch cache for: ${song.name}`);
+                urlResult.isPrefetch = true;
             }
         }
 
-        // 2. Fetch if not hit or hit but retry
         if (!urlResult) {
+            if (!targetQuality) {
+                targetQuality = window.QualityManager.getBestQuality(song, settings.preferredQuality || '320k');
+            }
             setPlayerStatus('正在获取播放链接...');
-            urlResult = await fetchSongUrl(song, quality, isRetry === true);
-        } else {
-            // 如果是预读命中的，设置一个特殊的标识供后面 UI 显示
-            urlResult.isPrefetch = true;
+            urlResult = await resolveSongUrl(song, targetQuality);
         }
 
-        // 3. Stale Check
+        // 2. Stale Check
         if (currentLoadingRequestId !== thisRequestId) return;
 
-        // 清除之前的加载提示等
-        dismissAllToasts();
+        // [Fix] 移除 dismissAllToasts()，允许成功/失败/尝试信息的 Toast 共存堆叠
 
         // Display attempts / success message
         const sourceText = getSourceTypeText(urlResult.sourceType);
         if (urlResult.isPrefetch) {
-            showSuccess(`[${song.name}] 预读 (${sourceText})`);
+            // 静默处理，不弹窗
         } else if (urlResult.sourceType !== 'normal') {
             showSuccess(`[${song.name}] 命中${sourceText}`);
-        } else if (urlResult.sourceName) {
-            showSuccess(`[${urlResult.sourceName}] 成功获取链接`);
-        } else if (urlResult.attempts) {
-            showPlaybackAttempts(urlResult.attempts);
         }
+
+        // [Real-time Progress handles attempts now via WebSocket]
 
         if (urlResult.errorMsg) {
             showError(urlResult.errorMsg);
@@ -1814,8 +1911,8 @@ async function playSong(song, index, forceQuality = null, noPlay = false, isRetr
         if (currentSourceType !== 'normal') {
             const retryHandler = () => {
                 console.warn(`[Player] ${currentSourceType} link failed, retrying online...`);
-                if (currentSourceType === 'cache') localStorage.removeItem(`lx_url_${cleanSongData(song).id}_${quality}`);
-                playSong(song, index, forceQuality, noPlay, currentSourceType === 'server_cache' ? 'local_retry' : true);
+                if (currentSourceType === 'cache') localStorage.removeItem(`lx_url_${cleanSongData(song).id}_${targetQuality}`);
+                playSong(song, index, targetQuality, noPlay, currentSourceType === 'server_cache' ? 'local_retry' : true);
             };
             audio.addEventListener('error', retryHandler, { once: true });
             const cleanup = () => audio.removeEventListener('error', retryHandler);
@@ -1874,23 +1971,18 @@ async function playSong(song, index, forceQuality = null, noPlay = false, isRetr
         if (currentLoadingRequestId !== thisRequestId) return;
         console.error('[Player] Error:', error);
 
-        const isSourceError = error.message && (error.message.includes('自定义源') || error.message.includes('not supported'));
-        const nextQuality = window.QualityManager.getNextLowerQuality(currentQuality || quality);
+        setPlayerStatus('播放失败');
+        showError(`播放失败: ${error.message || '未知错误'}`);
 
-        if (nextQuality && !forceQuality && !isSourceError) {
-            setPlayerStatus(`正在尝试降级到 ${window.QualityManager.getQualityDisplayName(nextQuality)}...`);
-            currentLoadingRequestId = 0;
-            currentLoadingSongId = null;
-            setTimeout(() => playSong(song, index, nextQuality), 1000);
-        } else {
-            setPlayerStatus('播放失败');
-            showError(`播放失败: ${error.message || '未知错误'}`);
-            if (error.attempts) showPlaybackAttempts(error.attempts);
+        // 区分“平台不支持”错误
+        const isPlatformNotSupported = error.message && (
+            error.message.includes('未找到支持') ||
+            error.message.includes('not supported')
+        );
 
-            if (settings.enableAutoSkipOnError) {
-                if (window._autoSkipTimer) clearTimeout(window._autoSkipTimer);
-                window._autoSkipTimer = setTimeout(() => playNext(), 3000);
-            }
+        if (settings.enableAutoSkipOnError || isPlatformNotSupported) {
+            if (window._autoSkipTimer) clearTimeout(window._autoSkipTimer);
+            window._autoSkipTimer = setTimeout(() => playNext(), isPlatformNotSupported ? 2000 : 3000);
         }
         updatePlayButton(false);
     } finally {
@@ -2252,10 +2344,28 @@ function updatePlayButton(isPlaying) {
     btn.innerHTML = isPlaying ? '<i class="fas fa-pause"></i>' : '<i class="fas fa-play ml-1"></i>';
 }
 
-function playNext() {
+/**
+ * 播放下一首。具备自动跳过被预读器标记为“不可解析”的歌曲的能力。
+ * @param {Number} depth 递归尝试深度，防止死循环
+ */
+function playNext(depth = 0) {
+    if (depth > 10) {
+        console.warn('[Queue] Too many unplayable songs skipped, stopping.');
+        return;
+    }
+
     const nextIndex = getNextIndex();
     if (nextIndex !== -1 && currentPlaylist[nextIndex]) {
-        playSong(currentPlaylist[nextIndex], nextIndex);
+        const nextSong = currentPlaylist[nextIndex];
+
+        // [Logic Fix] 如果这首歌在预读中已经被确认不可解析，直接跳过到再下一首
+        if (nextSong._unplayable && nextIndex !== currentIndex) {
+            console.log(`[Queue] Auto-skipping unplayable song [${nextIndex}]: ${nextSong.name}`);
+            currentIndex = nextIndex; // 更新当前索引以便 getNextIndex() 能找到下一首
+            return playNext(depth + 1);
+        }
+
+        playSong(nextSong, nextIndex);
     } else {
         console.log('[Queue] No next song or reached end of order playlist');
     }
@@ -6914,7 +7024,7 @@ function showOptions(title, message, options = []) {
 }
 window.showOptions = showOptions;
 
-// 通用 Toast 显示函数 (支持宽屏、滚动文字、点击重置倒计时)
+// 通用 Toast 显示函数 (支持宽屏、滚动文字、点击重置倒计时、动态堆叠)
 function showToast(type, message, duration = 3000) {
     const config = {
         success: { bg: 'bg-emerald-500', icon: 'fa-check-circle' },
@@ -6924,8 +7034,8 @@ function showToast(type, message, duration = 3000) {
     const conf = config[type] || config.info;
 
     const toast = document.createElement('div');
-    // 加大宽度 (w-80 / w-96), 允许点击交互, 添加 cursor-pointer
-    toast.className = `fixed bottom-24 right-4 ${conf.bg} text-white px-4 py-3 rounded-lg shadow-lg z-[1000] animate-slide-in flex items-center gap-3 w-80 md:w-96 max-w-[90vw] cursor-pointer transition-all duration-300`;
+    // 添加 toast-item 类用于后续高度计算
+    toast.className = `toast-item fixed right-4 ${conf.bg} text-white px-4 py-3 rounded-lg shadow-lg z-[1000] animate-slide-in flex items-center gap-3 w-80 md:w-96 max-w-[90vw] cursor-pointer transition-all duration-300`;
 
     // 判断文字长度，长文字启用滚动显示
     // 假设中文占2字符宽，英文1字符。w-96大约容纳25-30个汉字。
@@ -6953,16 +7063,46 @@ function showToast(type, message, duration = 3000) {
         ${contentHtml}
     `;
 
+    // [Strategy] Newest at bottom: 96px. Push old ones UP.
+    const bottomBase = 96;
+    const gap = 12;
+
+    toast.style.visibility = 'hidden';
     document.body.appendChild(toast);
 
-    // 倒计时逻辑
+    const toastHeight = toast.offsetHeight || 60;
+    const shiftAmt = toastHeight + gap;
+
+    document.querySelectorAll('.toast-item').forEach(el => {
+        if (el === toast) return;
+        const oldB = parseFloat(el.style.bottom || bottomBase);
+        const newB = oldB + shiftAmt;
+        el.style.bottom = `${newB}px`;
+        el.dataset.offset = newB;
+    });
+
+    toast.style.bottom = `${bottomBase}px`;
+    toast.dataset.offset = bottomBase;
+    toast.style.visibility = 'visible';
+
     let hideTimer = null;
 
     const startTimer = () => {
         if (hideTimer) clearTimeout(hideTimer);
         hideTimer = setTimeout(() => {
-            toast.classList.add('opacity-0', 'translate-y-4'); // 向下滑出
-            setTimeout(() => toast.remove(), 300);
+            toast.classList.add('opacity-0', 'translate-y-4');
+            setTimeout(() => {
+                const h = toast.offsetHeight + gap;
+                toast.remove();
+                document.querySelectorAll('.toast-item').forEach(el => {
+                    const elB = parseFloat(el.style.bottom || 0);
+                    if (elB > parseFloat(toast.dataset.offset)) {
+                        const newB = elB - h;
+                        el.style.bottom = `${newB}px`;
+                        el.dataset.offset = newB;
+                    }
+                });
+            }, 300);
         }, duration);
     };
 
@@ -6991,12 +7131,12 @@ function showToast(type, message, duration = 3000) {
 
 // 封装旧 API
 function showSuccess(message) { showToast('success', message, 2000); }
-function showInfo(message) { showToast('info', message, 3000); }
-function showError(message) { showToast('error', message, 5000); }
+function showInfo(message) { showToast('info', message, 2000); }
+function showError(message) { showToast('error', message, 2000); }
 
 // 清除所有当前显示的 Toast
 function dismissAllToasts() {
-    const toasts = document.querySelectorAll('.fixed.bottom-24.right-4');
+    const toasts = document.querySelectorAll('.toast-item');
     toasts.forEach(toast => {
         toast.style.opacity = '0';
         toast.style.transform = 'translateY(10px)';
@@ -7005,23 +7145,6 @@ function dismissAllToasts() {
 }
 window.dismissAllToasts = dismissAllToasts;
 
-/**
- * 分步展示播放尝试日志
- * @param {Array} attempts - [{name, status, message}]
- */
-function showPlaybackAttempts(attempts) {
-    if (!attempts || !attempts.length) return;
-    attempts.forEach((attempt, index) => {
-        setTimeout(() => {
-            const msg = `[${attempt.name}] ${attempt.message || (attempt.status === 'success' ? '解析成功' : '解析失败')}`;
-            if (attempt.status === 'success') {
-                showSuccess(msg);
-            } else {
-                showError(msg);
-            }
-        }, index * 300); // 间隔展示，避免瞬间堆叠
-    });
-}
 
 // ========================================
 // Sleep Timer Logic

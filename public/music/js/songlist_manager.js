@@ -370,9 +370,13 @@ window.SongListManager = (function () {
                             <i class="fas fa-play text-white text-xs"></i>
                         </div>
                     </div>
-                    <div class="min-w-0 flex-1 flex flex-col justify-center">
+                    <div class="min-w-0 flex-1 flex flex-col justify-center overflow-hidden">
                         <span class="font-bold text-sm truncate t-text-main group-hover:text-emerald-500 transition-colors">${song.name}</span>
-                        <span class="text-[10px] t-text-muted md:hidden truncate">${song.singer}</span>
+                        <div class="flex items-center gap-1 mt-0.5 overflow-hidden">
+                             ${window.getSourceTag ? window.getSourceTag(song.source || detailState.source) : ''}
+                             ${window.getQualityTags ? window.getQualityTags(song) : ''}
+                             <span class="text-[10px] t-text-muted md:hidden truncate">${song.singer}</span>
+                        </div>
                     </div>
                 </div>
                 <div class="hidden md:flex md:col-span-3 items-center text-xs t-text-muted truncate">

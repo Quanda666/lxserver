@@ -80,12 +80,20 @@ function getBestQuality(songInfo, userPreference = '320k') {
  * @param {string} currentQuality - 当前音质
  * @returns {string|null} 下一级音质，如果已是最低则返回 null
  */
-function getNextLowerQuality(currentQuality) {
+function getNextLowerQuality(currentQuality, songInfo = null) {
     const index = QUALITY_PRIORITY.indexOf(currentQuality);
     if (index === -1 || index === QUALITY_PRIORITY.length - 1) {
         return null;
     }
-    return QUALITY_PRIORITY[index + 1];
+    // 如果传入了 songInfo，只在歌曲实际支持的音质中查找下一级
+    const available = songInfo ? getAvailableQualities(songInfo) : null;
+    for (let i = index + 1; i < QUALITY_PRIORITY.length; i++) {
+        const q = QUALITY_PRIORITY[i];
+        if (!available || available.includes(q)) {
+            return q;
+        }
+    }
+    return null;
 }
 
 /**
