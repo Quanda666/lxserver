@@ -217,11 +217,24 @@ class WebDAVSync extends EventEmitter {
                 fs.mkdirSync(localDir, { recursive: true })
             }
 
-            const content = await this.client.getFileContents(remotePath)
-            fs.writeFileSync(localPath, content as any)
+            const content = await this.client.getFileContents(remotePath) as any
+
+            // 对比内容哈希，如果一致则跳过写入，避免触发文件系统监控
+            if (fs.existsSync(localPath)) {
+                const localContent = fs.readFileSync(localPath) as any
+                const localHash = crypto.createHash('md5').update(localContent).digest('hex')
+                const remoteHash = crypto.createHash('md5').update(content).digest('hex')
+
+                if (localHash === remoteHash) {
+                    // console.log(`File ${relativePath} is up to date, skipping write.`)
+                    return true
+                }
+            }
+
+            fs.writeFileSync(localPath, content)
 
             if (isRootConfig) {
-                console.log('config.js restored from WebDAV, restart may be required to take effect.')
+                console.log('config.js restored from WebDAV, content changed.')
                 // 这里可以发出事件提醒主进程，不过由于用户是手动触发恢复或启动时恢复，已经有重启逻辑覆盖
             }
 
@@ -525,12 +538,14 @@ class WebDAVSync extends EventEmitter {
                 console.log(`Restoring ${files.length} files from WebDAV...`)
                 const total = files.length
                 let current = 0
+                let hasConfig = false
 
                 this.emit('progress', { type: 'restore', status: 'start', total, message: '开始从云端恢复数据...' })
 
                 for (const file of files) {
                     current++
                     const relativePath = file.filename.replace('/lx-sync/', '')
+                    if (relativePath === 'config.js') hasConfig = true
 
                     this.emit('progress', {
                         type: 'restore',
@@ -542,6 +557,12 @@ class WebDAVSync extends EventEmitter {
                     })
 
                     await this.downloadFile(relativePath)
+                }
+
+                // 如果恢复的文件中没有 config.js，主动上传本地的
+                if (!hasConfig) {
+                    console.log('Cloud config.js not found, uploading local one...')
+                    await this.uploadFile('config.js')
                 }
 
                 this.emit('progress', { type: 'restore', status: 'finish', total, message: '数据恢复完成' })
@@ -559,10 +580,16 @@ class WebDAVSync extends EventEmitter {
             const result = await this.downloadLatestBackup()
             if (result) {
                 this.emit('progress', { type: 'restore', status: 'finish', message: '备份恢复完成' })
+                return true
             } else {
-                this.emit('progress', { type: 'restore', status: 'error', message: '未找到可用备份' })
+                // 如果未找到散文件也未找到备份，说明是第一次配置或云端为空
+                // 主动上传当前的 config.js 到云端进行初始化
+                console.log('Cloud is empty, uploading local config.js to initialize /lx-sync/...')
+                this.emit('progress', { type: 'restore', status: 'processing', message: '云端为空，正在上传本地配置初始化...' })
+                await this.uploadFile('config.js')
+                this.emit('progress', { type: 'restore', status: 'finish', message: '云端配置同步完成' })
+                return false
             }
-            return result
         } catch (err: any) {
             console.error('Failed to restore from remote:', err)
             this.emit('progress', { type: 'restore', status: 'error', message: '恢复失败: ' + err.message })

@@ -1863,7 +1863,7 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
               // 2. Mixed Content Handling (Optional Proxy) implementation details handled by frontend now
               // But we can keep the log for debugging
               if (result.url.startsWith('http://')) {
-                console.log(`[MusicUrl] Note: URL is HTTP, frontend might proxy if enabled: ${result.url}`)
+                // console.log(`[MusicUrl] Note: URL is HTTP, frontend might proxy if enabled: ${result.url}`)
               }
             }
 

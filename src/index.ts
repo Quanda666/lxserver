@@ -389,3 +389,32 @@ global.lx.webdavSync = webdavSync
 
 startServer(global.lx.config.port, global.lx.config.bindIP)
 
+// 监控 config.js 变动以实现热重载 (由于 nodemon 已忽略该文件)
+const rootConfigPath = path.join(process.cwd(), 'config.js')
+if (fs.existsSync(rootConfigPath)) {
+  let debounceTimer: NodeJS.Timeout | null = null
+  fs.watch(rootConfigPath, (event) => {
+    if (event === 'change') {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => {
+        console.log('Detected config.js change, hot-reloading...')
+        try {
+          delete require.cache[require.resolve(rootConfigPath)]
+          margeConfig(rootConfigPath)
+          // 重新初始化各模块以使用新配置（如果需要）
+          if (global.lx.webdavSync) {
+            global.lx.webdavSync.updateConfig({
+              url: global.lx.config['webdav.url'],
+              username: global.lx.config['webdav.username'],
+              password: global.lx.config['webdav.password'],
+              interval: global.lx.config['sync.interval'],
+            })
+          }
+        } catch (e) {
+          console.error('Hot-reload config.js failed:', e)
+        }
+      }, 500)
+    }
+  })
+}
+

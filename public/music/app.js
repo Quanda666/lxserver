@@ -27,6 +27,7 @@ let currentPage = 1;
 let currentSearch = { name: '', source: 'kw' };
 let currentPlaylist = [];
 let currentIndex = -1;
+let preSelectedNextIndex = null; // 预先选定的下一首索引 (用于确保随机模式下的预读一致性)
 window.viewingPlaylist = []; // Currently displayed list in UI
 let currentPlayingScope = 'network'; // Scope for active playback
 window.currentSearchScope = 'network'; // 'network', 'local_list', 'local_all' - Scope for UI view
@@ -1563,24 +1564,86 @@ async function resolveSongUrl(song, quality, isSilent = false, isRetry = false) 
     }
 }
 
+/**
+ * 统一应用代理逻辑，处理 HTTPS 环境下的 HTTP 链接
+ * 增强：优先尝试将 HTTP 升级为 HTTPS 并探测可用性，失败后再回退到服务器代理
+ */
+async function applyAutoProxy(url, song) {
+    if (!url) return url;
+
+    // 已经过代理或为本地路径的无需处理
+    if (url.startsWith('/api/music/download') || url.startsWith('/') || url.includes(window.location.host)) {
+        return url;
+    }
+
+    // 优先级 1：如果手动开启了“播放音乐代理”，则无条件走代理 (用于解决 IP 封锁或跨域限制)
+    if (settings.enableProxyPlayback) {
+        console.log(`[Proxy] Forced proxy enabled for: ${song.name}`);
+        const filename = `${song.singer} - ${song.name}.mp3`;
+        return `/api/music/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}&inline=1`;
+    }
+
+    const isHttpsEnv = window.location.protocol === 'https:';
+    const isHttpLink = url.startsWith('http://');
+
+    // 优先级 2：HTTPS 环境下遇到 HTTP 链接的自动处理 (探测升级或自动代理)
+    if (isHttpsEnv && isHttpLink) {
+        // 尝试自动升级协议，减少代理开销
+        const httpsUrl = url.replace('http://', 'https://');
+        console.log(`[Proxy] HTTPS environment detected HTTP link, probing upgrade: ${song.name}`);
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 2000); // 2秒探测超时
+
+            const response = await fetch(httpsUrl, {
+                method: 'GET',
+                headers: { 'Range': 'bytes=0-1' },
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            if (response.ok) {
+                console.log(`[Proxy] HTTPS Upgrade Success: ${song.name}`);
+                return httpsUrl;
+            }
+        } catch (e) {
+            console.warn(`[Proxy] HTTPS Probe failed, falling back to auto-proxy: ${song.name}`);
+        }
+
+        // 探测失败，如果开启了“自动代理”，则走服务器代理以通过 Mixed Content 检查
+        if (settings.enableAutoProxy) {
+            console.log(`[Proxy] Auto-proxying via server: ${song.name}`);
+            const filename = `${song.singer} - ${song.name}.mp3`;
+            return `/api/music/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}&inline=1`;
+        }
+    }
+
+    return url;
+}
+
 async function fetchSongUrl(song, quality, isRetry = false, isSilent = false) {
     const cleanedSong = cleanSongData(song);
     const cacheKey = `lx_url_${cleanedSong.id}_${quality}`;
 
     const allowServerCache = !isRetry && settings.enableServerCache;
     if (allowServerCache) {
-        const serverCacheUrl = await checkServerCache(cleanedSong, quality);
+        let serverCacheUrl = await checkServerCache(cleanedSong, quality);
         if (serverCacheUrl) {
             console.log(`[Cache] Server Hit: ${cleanedSong.name} (${quality})`);
+            // 应用代理逻辑 (以防服务器缓存返回的是原始 HTTP 链接)
+            serverCacheUrl = await applyAutoProxy(serverCacheUrl, song);
             return { url: serverCacheUrl, sourceType: 'server_cache', quality };
         }
     }
 
     const allowLinkCache = (!isRetry || isRetry === 'local_retry') && settings.enableSongUrlCache !== false;
     if (allowLinkCache) {
-        const cachedUrl = localStorage.getItem(cacheKey);
+        let cachedUrl = localStorage.getItem(cacheKey);
         if (cachedUrl) {
             console.log(`[Cache] Link Hit: ${cleanedSong.name} (${quality})`);
+            // 核心修复：命中本地缓存时也必须应用代理逻辑，否则 HTTPS 下无法播放 HTTP 缓存链接
+            cachedUrl = await applyAutoProxy(cachedUrl, song);
             return { url: cachedUrl, sourceType: 'cache', quality };
         }
     }
@@ -1626,18 +1689,8 @@ async function fetchSongUrl(song, quality, isRetry = false, isSilent = false) {
 
         const result = await res.json();
         if (result.url) {
-            // [Feature] 统一应用代理逻辑，确保预读和播放使用一致的 URL
-            let finalUrl = result.url;
-            let shouldProxy = settings.enableProxyPlayback;
-            if (!shouldProxy && settings.enableAutoProxy) {
-                if (window.location.protocol === 'https:' && finalUrl.startsWith('http://')) {
-                    shouldProxy = true;
-                }
-            }
-            if (shouldProxy && !finalUrl.startsWith('/api/music/download') && !finalUrl.includes('/api/music/cache/file/')) {
-                const filename = `${song.singer} - ${song.name}.mp3`;
-                finalUrl = `/api/music/download?url=${encodeURIComponent(finalUrl)}&filename=${encodeURIComponent(filename)}&inline=1`;
-            }
+            // 使用异步统一代理函数
+            const finalUrl = await applyAutoProxy(result.url, song);
 
             if (settings.enableSongUrlCache !== false) {
                 try {
@@ -1665,6 +1718,14 @@ async function fetchSongUrl(song, quality, isRetry = false, isSilent = false) {
 
 function getNextIndex() {
     if (!currentPlaylist || currentPlaylist.length === 0) return -1;
+
+    // [Random Prefetch Fix] 如果处于随机播放模式，且已有预选内容，优先返回预选
+    if (playMode === 'random' && preSelectedNextIndex !== null) {
+        if (preSelectedNextIndex >= 0 && preSelectedNextIndex < currentPlaylist.length) {
+            return preSelectedNextIndex;
+        }
+        preSelectedNextIndex = null; // 重置失效索引
+    }
 
     let nextIndex;
     switch (playMode) {
@@ -1697,7 +1758,14 @@ function getNextIndex() {
 async function prefetchNextSong(startFromIndex = null, depth = 0) {
     if (settings.enablePreloader === false || depth > 5) return;
 
-    const targetIndex = startFromIndex !== null ? startFromIndex : getNextIndex();
+    let targetIndex = startFromIndex;
+    if (targetIndex === null) {
+        targetIndex = getNextIndex();
+        // [Random Prefetch Fix] 如果是随机模式，且尚未有预选结果，将本次生成的索引存入预选
+        if (playMode === 'random' && preSelectedNextIndex === null) {
+            preSelectedNextIndex = targetIndex;
+        }
+    }
     if (targetIndex === -1 || targetIndex === currentIndex) return;
 
     const nextSong = currentPlaylist[targetIndex];
@@ -1832,6 +1900,9 @@ async function playSong(song, index, forceQuality = null, noPlay = false, isRetr
     currentLoadingRequestId = thisRequestId;
 
     currentIndex = index;
+    // [Random Prefetch Fix] 一旦开始正式播放一首歌曲，清除之前的预选索引，以便下一轮重新生成
+    preSelectedNextIndex = null;
+
     currentPlayingSong = song;
     window.currentPlayingSong = song; // expose for lyric-card.js
     updatePlayerInfo(song);
@@ -1893,6 +1964,9 @@ async function playSong(song, index, forceQuality = null, noPlay = false, isRetr
         if (urlResult) {
             urlResult.isPrefetch = true;
             isPrefetchFound = true;
+
+            // [Optimize] 既然主播放器即将接管该 URL，立即清空缓冲器 src 以停止其后台加载
+            prefetchManager.bufferer.src = '';
         }
     }
 
@@ -2895,6 +2969,8 @@ let playMode = 'list'; // 'list': 列表循环, 'single': 单曲循环, 'random'
 // 设置播放模式
 function setPlayMode(mode) {
     playMode = mode;
+    // [Random Prefetch Fix] 切换模式时清空预读预选索引
+    preSelectedNextIndex = null;
     updatePlayModeUI();
 
     // 保存到本地存储
