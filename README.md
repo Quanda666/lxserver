@@ -101,11 +101,6 @@
 ## 🔒 访问控制与安全
 
 为了保护你的隐私，Web 播放器支持开启访问密码。
-
-<p align="center">
-  <img src="md/setting.png" width="800" alt="Auth Check">
-</p>
-
 ### 开启方式
 
 1. **环境变量配置**（推荐 Docker 用户使用）：

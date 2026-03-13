@@ -18,28 +18,6 @@
         }
     },
     {
-        "comment": "=== 版本更新 v1.7.4 ===",
-        "id": "update_v1_7_4",
-        "status": "inactive",
-        "type": "version",
-        "logic": {
-            "target_version": "v1.7.4",
-            "operator": "<",
-            "interval_hours": 24
-        },
-        "ui": {
-            "title": "发现新版本 v1.7.4",
-            "date": "2026-03-10",
-            "message": "本次更新带来了以下核心升级：\n1. 💾 WebDAV及配置管理：配置自动持久化并纳入云端同步，恢复后服务端实现「热重载」，无需人工重启即可生效。\n2. 🔍 搜索体验提升：新增跨平台搜索联想提示（支持键盘选取），并彻底屏蔽现代浏览器烦人的账号自动填充弹窗。\n3. ⚡ 播放体验优化：引入预读缓存实现无缝秒切歌，并针对切歌与缓冲加入了更加细致的即时状态反馈。\n4. 🛠️ 自定义源稳定性：修复了数据同步恢复后自定义源加载失效的问题，现在恢复后会自动重连并立刻就绪。",
-            "confirm_text": "立即查看",
-            "cancel_text": "稍后提醒"
-        },
-        "action": {
-            "type": "link",
-            "url": "https://github.com/XCQ0607/lxserver/releases/tag/v1.7.4"
-        }
-    },
-    {
         "comment": "=== 版本更新 v1.7.5 ===",
         "id": "update_v1_7_5",
         "status": "active",

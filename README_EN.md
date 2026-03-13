@@ -90,10 +90,6 @@ Supports importing custom source scripts to expand music sources even further.
 
 ## 🔒 Access Control & Security
 To protect your privacy, the Web Player supports password protection.
-<p align="center">
-  <img src="md/setting.png" width="800" alt="Auth Check">
-</p>
-
 ### How to Enable
 
 1. **Environment Variable** (Recommended for Docker users):
