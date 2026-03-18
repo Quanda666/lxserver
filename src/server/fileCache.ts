@@ -31,7 +31,9 @@ const getCacheDir = (username?: string) => {
     }
 
     // [New] Segment cache by username
-    const userDirName = (username && username !== '_open') ? username : '_open'
+    const userDirName = (username && username !== '_open' && username !== 'default') ? username : '_open'
+
+    // 如果启用了公开限制，公共用户的缓存会放在独立的 _open 文件夹下，但仍然受 currentCacheLocation 控制
     return path.join(baseDir, userDirName)
 }
 
@@ -203,6 +205,8 @@ export const setCacheLocation = (location: string) => {
         console.log(`[FileCache] Base cache location set to: ${location}`)
     }
 }
+
+export const getCacheLocation = () => currentCacheLocation
 
 export const checkCache = (songInfo: any, username?: string, includeTmp = false) => {
     let baseDir = ''

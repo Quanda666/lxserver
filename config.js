@@ -33,6 +33,10 @@ module.exports = {
   // 环境变量: USER_ENABLE_ROOT (true/false)
   "user.enableRoot": false,
 
+  // 是否启用公开用户权限限制 (开启后将限制公开用户的某些敏感操作，如上传、删除自定义源)
+  // 环境变量: ENABLE_PUBLIC_USER_RESTRICTION (true/false)
+  "user.enablePublicRestriction": true,
+
   // 最大快照数 (用于数据回滚)
   // 环境变量: MAX_SNAPSHOT_NUM
   "maxSnapshotNum": 10,

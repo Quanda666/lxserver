@@ -41,7 +41,10 @@ export const setVersion = (version: number) => {
   saveServerInfoThrottle()
 }
 
-export const getUserDirname = (userName: string) => `${filterFileName(userName)}_${toMD5(userName).substring(0, 6)}`
+export const getUserDirname = (userName: string) => {
+  if (userName === '_open') return '_open'
+  return `${filterFileName(userName)}_${toMD5(userName).substring(0, 6)}`
+}
 
 export const getUserConfig = (userName: string): Required<LX.User> => {
   const user = global.lx.config.users.find(u => u.name == userName)
@@ -112,7 +115,7 @@ export class UserDataManage {
     return this.devicesInfo.clients[clientId] ?? null
   }
 
-  removeClientKeyInfo = async(clientId: string) => {
+  removeClientKeyInfo = async (clientId: string) => {
     // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
     delete this.devicesInfo.clients[clientId]
     this.saveDevicesInfoThrottle()

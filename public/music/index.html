@@ -98,6 +98,14 @@
             scrollbar-width: none;
         }
 
+        /* 彻底消除侧边抽屉在隐藏状态下的阴影与边缘线残留 */
+        #queue-drawer.translate-x-full,
+        #cache-drawer.translate-x-full,
+        #download-drawer.translate-x-full {
+            box-shadow: none !important;
+            border-left-width: 0 !important;
+        }
+
         /* Setting Tooltip Styles */
         .setting-tooltip-trigger {
             position: relative;
@@ -1280,7 +1288,8 @@
                         <p class="text-gray-500 mt-4 mb-10 text-center max-w-md leading-relaxed px-6">
                             您的收藏暂时无法同步。请前往设置页面登录，同步您的LX MUSIC歌单，享受跨设备的一致体验。
                         </p>
-                        <button onclick="switchTab('settings')"
+                        <button
+                            onclick="switchTab('settings'); setTimeout(() => { document.getElementById('btn-mode-local').scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);"
                             class="px-10 py-4 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-2xl shadow-xl shadow-emerald-200 transition-all transform hover:-translate-y-1 active:translate-y-0 flex items-center gap-3 group">
                             <i class="fas fa-sign-in-alt group-hover:translate-x-1 transition-transform"></i>
                             立即去登录 (Go to Login)
@@ -1290,8 +1299,9 @@
 
                 <!-- Settings View -->
                 <div id="view-settings"
-                    class="absolute inset-0 overflow-y-auto custom-scrollbar px-6 pt-6 pb-44 md:pb-32 hidden opacity-0 transition-all duration-300">
-                    <div class="t-bg-panel rounded-2xl shadow-sm border t-border-main p-8 max-w-2xl mx-auto w-full">
+                    class="absolute inset-0 overflow-y-auto overflow-x-hidden custom-scrollbar px-4 pt-6 pb-44 md:pb-32 hidden opacity-0 transition-all duration-300">
+                    <div
+                        class="t-bg-panel rounded-2xl shadow-sm border t-border-main p-4 sm:p-8 max-w-2xl mx-auto w-full">
                         <h2 class="text-2xl font-bold t-text-main mb-6">设置</h2>
 
                         <!-- Settings Tabs -->
@@ -1318,11 +1328,22 @@
                         <!-- System Settings Panel -->
                         <div id="settings-panel-system" class="space-y-6 animate-fade-in">
                             <div>
-                                <div class="flex items-center gap-2 mb-3">
-                                    <h3 class="font-bold text-emerald-500 flex items-center gap-2">
-                                        <i class="fas fa-plug text-sm"></i> 自定义源(Custom Source)
-                                    </h3>
-                                    <span id="settings-source-scope-tag"></span>
+                                <div class="flex flex-wrap items-center gap-x-2 gap-y-2.5 mb-3">
+                                    <div class="flex items-center gap-2">
+                                        <h3 class="font-bold text-emerald-500 flex items-center gap-2">
+                                            <i class="fas fa-plug text-sm"></i> 自定义源(Custom Source)
+                                        </h3>
+                                        <div id="settings-source-scope-tag" class="hidden flex items-center gap-1">
+                                        </div>
+                                        <span id="settings-admin-tag"
+                                            class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-50 text-orange-500 whitespace-nowrap hidden">管理员</span>
+                                    </div>
+                                    <button id="btn-admin-logout" onclick="handleAdminLogout()"
+                                        class="ml-auto text-[10px] px-3 py-1 bg-red-50 text-red-500 rounded-full hover:bg-red-100 transition-all border border-red-100 hidden">退出管理员</button>
+                                    <button id="btn-admin-login" onclick="handleAdminLogin()"
+                                        class="ml-auto text-[10px] px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full hover:bg-emerald-100 transition-all border border-emerald-100 flex items-center gap-1.5 hidden">
+                                        <i class="fas fa-user-shield"></i> 管理员登录
+                                    </button>
                                 </div>
                                 <p class="text-xs t-text-muted mb-4 font-medium uppercase tracking-wider">管理和配置第三方音乐源脚本
                                 </p>
@@ -1580,11 +1601,11 @@
                                     <div class="flex items-center justify-between">
                                         <div>
                                             <div class="text-sm font-bold t-text-main flex items-center">
-                                                自动同步账号设置到文件
+                                                自动同步账号设置到文件 (Auto-sync settings to file)
                                                 <span class="setting-tooltip-trigger ml-1">
                                                     <i class="fas fa-question-circle"></i>
                                                     <span
-                                                        class="setting-tooltip-content">保存当前账号的设置（音质、源选择等）到服务器端用户配置目录，实现多端自动同步。</span>
+                                                        class="setting-tooltip-content">保存当前账号的设置（音质、源选择等）到服务器端用户配置目录，实现多端自动同步。注意：未登录状态下，该设置无效，账号设置将保存在浏览器缓存。</span>
                                                 </span>
                                             </div>
                                         </div>
@@ -3090,7 +3111,7 @@
     </div>
 
     <!-- Sync Auth Modal -->
-    <div id="sync-auth-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div id="sync-auth-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-[70]">
         <div class="t-bg-panel rounded-lg shadow-xl w-96 p-6 relative">
             <button onclick="closeSyncModal()" class="absolute top-2 right-2 t-text-muted hover:t-text-muted">
                 <i class="fas fa-times"></i>
@@ -3162,8 +3183,8 @@
 
     <!-- Custom Source Modal -->
     <div id="custom-source-modal"
-        class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center backdrop-blur-sm transition-opacity duration-300">
-        <div class="t-bg-panel rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl transform transition-transform duration-300 scale-95 opacity-0"
+        class="fixed inset-0 bg-black bg-opacity-50 z-[70] hidden flex items-center justify-center backdrop-blur-sm transition-opacity duration-300">
+        <div class="t-bg-panel rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl transform transition-transform duration-300 scale-95 opacity-0 overflow-hidden"
             id="custom-source-modal-content">
             <!-- Header -->
             <div class="p-6 border-b t-border-main flex justify-between items-center t-bg-main rounded-t-2xl">
@@ -3200,7 +3221,7 @@
 
     <!-- Playlist Add Modal (添加到歌单) -->
     <div id="playlist-add-modal"
-        class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center backdrop-blur-sm transition-opacity duration-300">
+        class="fixed inset-0 bg-black/60 z-[70] hidden flex items-center justify-center backdrop-blur-sm transition-opacity duration-300">
         <div class="t-bg-panel rounded-xl w-full max-w-2xl flex flex-col shadow-2xl transform transition-transform duration-300 scale-95 opacity-0 overflow-hidden"
             id="playlist-add-modal-content">
             <!-- Header -->
@@ -3228,7 +3249,7 @@
 
     <!-- Sleep Timer Modal -->
     <div id="sleep-timer-modal"
-        class="fixed inset-0 bg-black/40 z-[60] hidden items-center justify-center backdrop-blur-sm transition-opacity duration-300">
+        class="fixed inset-0 bg-black/40 z-[70] hidden items-center justify-center backdrop-blur-sm transition-opacity duration-300">
         <div class="t-bg-panel/90 backdrop-blur-xl rounded-3xl w-full max-w-sm flex flex-col shadow-2xl border border-white/20 transform transition-all duration-300 scale-95 opacity-0"
             id="sleep-timer-modal-content">
             <div class="p-6">
@@ -3819,7 +3840,7 @@
 
     <!-- Sound Effects Modal -->
     <div id="sound-effects-modal"
-        class="fixed inset-0 z-[60] hidden items-center justify-center p-4 md:p-6 transition-all duration-300">
+        class="fixed inset-0 z-[70] hidden items-center justify-center p-4 md:p-6 transition-all duration-300">
         <div class="absolute inset-0 bg-black/40" onclick="window.soundEffects && window.soundEffects.close()"></div>
         <div id="sound-effects-content"
             class="relative w-full max-w-5xl max-h-[90vh] md:max-h-[85vh] t-bg-panel rounded-xl shadow-2xl border t-border-main flex flex-col overflow-hidden transform translate-y-10 opacity-0 transition-all duration-500">

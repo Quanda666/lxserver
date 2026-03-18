@@ -214,6 +214,22 @@ async function downloadSong(songOrId, forceQuality = null, suppressAlerts = fals
             targetQuality = availableQualities[selectedQualityIndex];
         }
 
+        // [新增] 权限校验：受限公开用户需要验证管理员
+        const isPublic = !window.currentListData?.username || window.currentListData?.username === 'default';
+        const enablePublicRestriction = window.lx_config?.['user.enablePublicRestriction'];
+        const isAdmin = !!localStorage.getItem('lx_admin_password');
+        const isServerCacheAllowed = window.settings?.enableServerCache === true;
+
+        if (isPublic && enablePublicRestriction && !isServerCacheAllowed && !isAdmin) {
+            showError('权限限制：缓存到服务器需要验证管理员。');
+            if (typeof window.handleAdminAuth === 'function') {
+                const authorized = await window.handleAdminAuth('缓存到服务器需要验证管理员身份');
+                if (!authorized) return false;
+            } else {
+                return false;
+            }
+        }
+
         try {
             // [Unified] 统一交给下载管理器调度
             if (window.SystemDownloadManager) {
@@ -322,6 +338,22 @@ async function batchDownloadFromList() {
         if (!selectedQualityDisplay) return;
         const selectedQualityIndex = qualityDisplayNames.indexOf(selectedQualityDisplay);
         const targetQuality = availableQualities[selectedQualityIndex];
+
+        // [新增] 权限校验：受限公开用户需要验证管理员
+        const isPublic = !window.currentListData?.username || window.currentListData?.username === 'default';
+        const enablePublicRestriction = window.lx_config?.['user.enablePublicRestriction'];
+        const isAdmin = !!localStorage.getItem('lx_admin_password');
+        const isServerCacheAllowed = window.settings?.enableServerCache === true;
+
+        if (isPublic && enablePublicRestriction && !isServerCacheAllowed && !isAdmin) {
+            showError('权限限制：缓存到服务器需要验证管理员。');
+            if (typeof window.handleAdminAuth === 'function') {
+                const authorized = await window.handleAdminAuth('缓存到服务器需要验证管理员身份');
+                if (!authorized) return;
+            } else {
+                return;
+            }
+        }
 
         if (!window.SystemDownloadManager) {
             showError('下载管理器未就绪');

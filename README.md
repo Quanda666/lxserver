@@ -8,7 +8,7 @@
   <h1>LX Sync Server</h1> -->
   <p>
     <img src="https://img.shields.io/badge/build-passing-brightgreen?style=flat-square" alt="Build Status">
-    <img src="https://img.shields.io/badge/version-v1.7.6-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v1.7.7-blue?style=flat-square" alt="Version">
     <img src="https://img.shields.io/badge/node-%3E%3D16-green?style=flat-square" alt="Node Version">
     <img src="https://img.shields.io/github/license/XCQ0607/lxserver?style=flat-square" alt="License">
     <br>
@@ -45,7 +45,7 @@
 </p>
 
 ### 3. 内容与播放列表
-  
+
 支持**多平台歌单**的浏览、搜索与一键播放，提供直观的**歌单详情**面板，包含封面、作者、简介等完整信息。**播放队列**支持拖拽排序、批量管理及快速定位当前播放。
 
 <p align="center">
@@ -58,7 +58,7 @@
 </p>
 
 ### 4. 强大的播放控制
-  
+
 支持播放模式切换、音质选择、歌词显示、睡眠定时、播放倍数等功能。
 
 <p align="center">
@@ -66,7 +66,7 @@
 </p>
 
 ### 5. 缓存管理
-  
+
 内置**全自动化缓存系统**，可自动保存歌词、链接及歌曲文件，通过专门的**缓存控制面板**实现颗粒化管理，极大提升弱网环境下的播放流畅度。
 
 <p align="center">
@@ -74,7 +74,7 @@
 </p>
 
 ### 6. 歌词卡片分享
-  
+
 新增**歌词卡片分享**功能，支持自定义卡片比例（竖版/横版/方版）、色彩风格（深色/浅色/专辑色）及歌词行数，一键生成精美海报，支持旋转缩放。
 
 <p align="center">
@@ -82,7 +82,7 @@
 </p>
 
 ### 7. 主题定制与系统功能
-  
+
 支持**多套现代化主题**（如森之韵、深海鲨、暖阳意、绯红月等），并可根据系统自动切换暗亮模式。系统设置支持**自动更新网络歌单**、**账号设置自动备份**及**多维度代理**配置，确保播放顺滑稳定。
 
 <p align="center">
@@ -101,6 +101,7 @@
 ## 🔒 访问控制与安全
 
 为了保护你的隐私，Web 播放器支持开启访问密码。
+
 ### 开启方式
 
 1. **环境变量配置**（推荐 Docker 用户使用）：
@@ -171,21 +172,31 @@ npm start
 
 可以直接编辑 `config.js`。环境变量优先级最高：
 
-| 环境变量                  | 对应配置项            | 说明                                               | 默认值             |
-| ------------------------- | --------------------- | -------------------------------------------------- | ------------------ |
-| `PORT`                  | `port`              | 服务端口                                           | `9527`           |
-| `BIND_IP`               | `bindIP`            | 绑定 IP                                            | `0.0.0.0`        |
-| `FRONTEND_PASSWORD`     | `frontend.password` | Web 管理界面访问密码                               | `123456`         |
-| `SERVER_NAME`           | `serverName`        | 同步服务名称                                       | `My Sync Server` |
-| `MAX_SNAPSHOT_NUM`      | `maxSnapshotNum`    | 保留的最大快照数量                                 | `10`             |
-| `PROXY_HEADER`          | `proxy.header`      | 代理转发 IP 头 (如 `x-real-ip`)                  | -                  |
-| `WEBDAV_URL`            | `webdav.url`        | WebDAV 地址                                        | -                  |
-| `WEBDAV_USERNAME`       | `webdav.username`   | WebDAV 用户名                                      | -                  |
-| `WEBDAV_PASSWORD`       | `webdav.password`   | WebDAV 密码                                        | -                  |
-| `SYNC_INTERVAL`         | `sync.interval`     | WebDAV 自动备份间隔(分钟)                          | `60`             |
-| `ENABLE_WEBPLAYER_AUTH` | `player.enableAuth` | 是否启用 Web 播放器访问密码                        | `false`          |
-| `WEBPLAYER_PASSWORD`    | `player.password`   | Web 播放器访问密码                                 | 123456             |
-| `DISABLE_TELEMETRY`     | `disableTelemetry`  | 是否禁用匿名数据统计，系统更新提示以及系统公告提示 | `false`          |
+| 环境变量                           | 对应配置项                       | 说明                                                            | 默认值             |
+| ---------------------------------- | -------------------------------- | --------------------------------------------------------------- | ------------------ |
+| `PORT`                           | `port`                         | 服务端口                                                        | `9527`           |
+| `BIND_IP`                        | `bindIP`                       | 绑定 IP                                                         | `0.0.0.0`        |
+| `FRONTEND_PASSWORD`              | `frontend.password`            | Web 管理界面访问密码                                            | `123456`         |
+| `SERVER_NAME`                    | `serverName`                   | 同步服务名称                                                    | `My Sync Server` |
+| `MAX_SNAPSHOT_NUM`               | `maxSnapshotNum`               | 保留的最大快照数量                                              | `10`             |
+| `CONFIG_PATH`                    | -                              | 指定外部配置文件的绝对路径                                      | -                  |
+| `DATA_PATH`                      | -                              | 指定数据存储目录的绝对路径                                      | `./data`           |
+| `LOG_PATH`                       | -                              | 指定日志输出目录的绝对路径                                      | `./logs`           |
+| `PROXY_HEADER`                   | `proxy.header`                 | 代理转发 IP 头 (如 `x-real-ip`)                               | -                  |
+| `USER_ENABLE_ROOT`               | `user.enableRoot`              | 启用根路径 (开启后连接URL即为 `ip:port`，不允许不同用户密码相同) | `false`          |
+| `USER_ENABLE_PATH`               | `user.enablePath`              | 启用用户路径 (开启后连接URL需为 `ip:port/用户名`，允许密码相同) | `true`           |
+| `WEBDAV_URL`                     | `webdav.url`                   | WebDAV 地址                                                     | -                  |
+| `WEBDAV_USERNAME`                | `webdav.username`              | WebDAV 用户名                                                   | -                  |
+| `WEBDAV_PASSWORD`                | `webdav.password`              | WebDAV 密码                                                     | -                  |
+| `SYNC_INTERVAL`                  | `sync.interval`                | WebDAV 自动备份间隔(分钟)                                       | `60`             |
+| `ENABLE_WEBPLAYER_AUTH`          | `player.enableAuth`            | 是否启用 Web 播放器访问密码                                     | `false`          |
+| `WEBPLAYER_PASSWORD`             | `player.password`              | Web 播放器访问密码                                              | 123456             |
+| `DISABLE_TELEMETRY`              | `disableTelemetry`             | 是否禁用匿名数据统计，系统更新提示以及系统公告提示              | `false`          |
+| `ENABLE_PUBLIC_USER_RESTRICTION` | `user.enablePublicRestriction` | 是否启用公开用户权限限制 (限制上传、删除公开源、缓存到服务器等) | `true`           |
+| `LIST_ADD_MUSIC_LOCATION_TYPE`   | `list.addMusicLocationType`    | 添加歌曲到列表时的位置 (`top` / `bottom`)                       | `top`            |
+| `LX_USER_<用户名>`                 | `users` 数组                   | 快速添加用户，值为该用户的密码 (如 `LX_USER_test=123`)        | -                  |
+
+> **提示**：目前服务支持 `启用根路径` (URL配置为 `ip:port`) 和 `启用用户路径` (URL配置为 `ip:port/username`) 两种数据同步连接方式。如果没有启用用户路径，则必须保证每一个同步用户的鉴权密码不重复。
 
 ---
 

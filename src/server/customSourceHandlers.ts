@@ -141,6 +141,16 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
         // 确定 owner 用于后续标识
         const targetOwner = (username && username !== 'default') ? username : 'open'
 
+        // 检查权限限制
+        if (targetOwner === 'open' && global.lx.config['user.enablePublicRestriction']) {
+            const auth = req.headers['x-frontend-auth']
+            if (auth !== global.lx.config['frontend.password']) {
+                res.writeHead(403, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ success: false, error: '公共源上传已受限，仅管理员可操作。' }))
+                return
+            }
+        }
+
         const sourcesDir = getSourceDir(username)
         const metaPath = path.join(sourcesDir, 'sources.json')
 
@@ -265,6 +275,17 @@ export async function handleImport(req: IncomingMessage, res: ServerResponse) {
         }
 
         const targetOwner = (username && username !== 'default') ? username : 'open'
+
+        // 检查权限限制
+        if (targetOwner === 'open' && global.lx.config['user.enablePublicRestriction']) {
+            const auth = req.headers['x-frontend-auth']
+            if (auth !== global.lx.config['frontend.password']) {
+                res.writeHead(403, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ success: false, error: '公共源导入已受限，仅管理员可操作。' }))
+                return
+            }
+        }
+
         const sourcesDir = getSourceDir(username)
         const metaPath = path.join(sourcesDir, 'sources.json')
 
@@ -453,6 +474,17 @@ export async function handleToggle(req: IncomingMessage, res: ServerResponse) {
         const targetId = id || sourceId
 
         let targetOwner = (username && username !== 'default') ? username : 'open'
+
+        // 检查权限限制
+        if (targetOwner === 'open' && global.lx.config['user.enablePublicRestriction']) {
+            const auth = req.headers['x-frontend-auth']
+            if (auth !== global.lx.config['frontend.password']) {
+                res.writeHead(403, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ success: false, error: '公共源状态切换已受限，仅管理员可操作。' }))
+                return
+            }
+        }
+
         let sourcesDir = getSourceDir(targetOwner)
         let metaPath = path.join(sourcesDir, 'sources.json')
 
@@ -562,6 +594,17 @@ export async function handleReorder(req: IncomingMessage, res: ServerResponse) {
         }
 
         let targetOwner = (username && username !== 'default') ? username : 'open'
+
+        // 检查权限限制 (公开源排序)
+        if (targetOwner === 'open' && global.lx.config['user.enablePublicRestriction']) {
+            const auth = req.headers['x-frontend-auth']
+            if (auth !== global.lx.config['frontend.password']) {
+                res.writeHead(403, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ success: false, error: '公共源排序已受限，仅管理员可操作。' }))
+                return
+            }
+        }
+
         let sourcesDir = getSourceDir(targetOwner)
         let metaPath = path.join(sourcesDir, 'sources.json')
         let orderPath = path.join(sourcesDir, 'order.json')
@@ -632,6 +675,17 @@ export async function handleDelete(req: IncomingMessage, res: ServerResponse) {
 
         // 查找逻辑同 Toggle
         let targetOwner = (username && username !== 'default') ? username : 'open'
+
+        // 检查权限限制
+        if (targetOwner === 'open' && global.lx.config['user.enablePublicRestriction']) {
+            const auth = req.headers['x-frontend-auth']
+            if (auth !== global.lx.config['frontend.password']) {
+                res.writeHead(403, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ success: false, error: '公共源删除已受限，仅管理员可操作。' }))
+                return
+            }
+        }
+
         let sourcesDir = getSourceDir(targetOwner)
         let metaPath = path.join(sourcesDir, 'sources.json')
 

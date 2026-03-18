@@ -68,6 +68,11 @@ declare namespace LX {
     'user.enableRoot'?: boolean
 
     /**
+     * 是否启用公开用户权限限制
+     */
+    'user.enablePublicRestriction'?: boolean
+
+    /**
      * 公共最大备份快照数
      */
     maxSnapshotNum: number

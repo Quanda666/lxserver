@@ -149,7 +149,9 @@ let authToken = sessionStorage.getItem('lx_player_auth');
     try {
         const response = await fetch('/api/music/config');
         const config = await response.json();
+        window.lx_config = config; // 获取公共配置供权限模块使用
         authEnabled = config['player.enableAuth'] === true;
+
         // 若开启认证，显示登出按钮
         if (authEnabled) {
             const logoutBtn = document.getElementById('logout-btn');
@@ -158,6 +160,19 @@ let authToken = sessionStorage.getItem('lx_player_auth');
                 logoutBtn.classList.add('flex');
             }
         }
+
+        // 获取到公共配置后，立即刷新一次 UI 状态 (管理员按钮/设置项禁用等)
+        if (typeof syncSettingsUI === 'function') syncSettingsUI();
+        else if (typeof updateAdminUI === 'function') updateAdminUI();
+
+        // [新增] 公开受限用户自动尝试从服务器拉取配置 (_open)
+        if (config['user.enablePublicRestriction']) {
+            console.log('[Auth] 检测到公开限制已开启，尝试拉取公共配置...');
+            if (typeof fetchSettingsFromServer === 'function') {
+                await fetchSettingsFromServer();
+            }
+        }
+
     } catch (error) {
         console.error('[Auth] 初始化检查失败:', error);
     }
@@ -469,6 +484,12 @@ function switchTab(tabId) {
         activeView.classList.remove('opacity-0');
         activeView.classList.add('opacity-100');
     }, 10);
+
+    // [新增] 切换到设置页面时刷新一次管理员状态和设置项 UI
+    if (tabId === 'settings') {
+        if (typeof syncSettingsUI === 'function') syncSettingsUI();
+        else if (typeof updateAdminUI === 'function') updateAdminUI();
+    }
 
     // Reset Sidebar Highlight
     document.querySelectorAll('[id^="tab-"]').forEach(el => {
@@ -2094,6 +2115,65 @@ async function checkServerCache(song, quality, exactQuality = false) {
     return null;
 }
 
+/**
+ * 管理员权限验证通用处理逻辑
+ * 如果检测到 403 错误，弹出密码输入框并保存密码后重试
+ */
+async function handleAdminAuth(message) {
+    const pass = await showInput('管理员身份验证', message, {
+        placeholder: '请输入后台管理密码',
+        inputType: 'password'
+    });
+    if (pass) {
+        localStorage.setItem('lx_admin_password', pass);
+        updateAdminUI(); // 更新 UI 状态
+        return true;
+    }
+    return false;
+}
+window.handleAdminAuth = handleAdminAuth;
+
+// 管理员登录处理
+async function handleAdminLogin() {
+    const authorized = await handleAdminAuth('请输入管理员密码进行登录验证');
+    if (authorized) {
+        showSuccess('管理员已登录');
+        syncSettingsUI(); // 刷新设置界面状态
+    }
+}
+window.handleAdminLogin = handleAdminLogin;
+
+// 管理员退出登录处理
+async function handleAdminLogout() {
+    if (!(await showSelect('管理员登出', '确定要退出管理员身份吗？'))) return;
+    localStorage.removeItem('lx_admin_password');
+    updateAdminUI();
+    syncSettingsUI();
+    showSuccess('管理员已登出');
+}
+window.handleAdminLogout = handleAdminLogout;
+
+// 更新管理员相关 UI 元素
+function updateAdminUI() {
+    const isAdmin = !!localStorage.getItem('lx_admin_password');
+    const isPublic = !currentListData?.username || currentListData?.username === 'default';
+
+    // 自定义源部分的标签和按钮
+    const adminTag = document.getElementById('settings-admin-tag');
+    const loginBtn = document.getElementById('btn-admin-login');
+    const logoutBtn = document.getElementById('btn-admin-logout');
+    const scopeTag = document.getElementById('settings-source-scope-tag');
+
+    if (adminTag) adminTag.classList.toggle('hidden', !isAdmin);
+    if (logoutBtn) logoutBtn.classList.toggle('hidden', !isAdmin);
+    if (loginBtn) {
+        loginBtn.classList.toggle('hidden', isAdmin || !window.lx_config?.['user.enablePublicRestriction'] || !isPublic);
+    }
+    if (scopeTag) {
+        scopeTag.classList.toggle('hidden', !isPublic);
+    }
+}
+
 async function triggerServerCache(song, url, quality) {
     try {
         console.log('[ServerCache] Triggering background download for:', song.name);
@@ -2101,20 +2181,30 @@ async function triggerServerCache(song, url, quality) {
         const headers = { 'Content-Type': 'application/json' };
         if (username) headers['x-user-name'] = username;
 
+        // 添加管理员验证 Header (如果已登录)
+        const adminPass = localStorage.getItem('lx_admin_password');
+        if (adminPass) headers['x-frontend-auth'] = adminPass;
+
         await fetch('/api/music/cache/download', {
             method: 'POST',
             headers: headers,
             body: JSON.stringify({ songInfo: song, url, quality })
         });
+        // 移除 403 自动重试逻辑，API 不再报 403
     } catch (e) { console.error('[ServerCache] Trigger failed:', e); }
 }
 
 function updateServerCacheConfig(location) {
+    const headers = { 'Content-Type': 'application/json' };
+    const adminPass = localStorage.getItem('lx_admin_password');
+    if (adminPass) headers['x-frontend-auth'] = adminPass;
+
     fetch('/api/music/cache/config', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers,
         body: JSON.stringify({ location })
     }).catch(e => console.error('[ServerCache] Config update failed:', e));
+    // 移除 UI 通知逻辑，因为此函数通常在初始化时静默运行
 }
 window.updateServerCacheConfig = updateServerCacheConfig; // Expose global
 
@@ -3548,7 +3638,22 @@ document.addEventListener('keyup', (e) => {
     if (e.code === 'ArrowRight') handleSeekKey('forward', 'up');
 });
 
-function updateSetting(key, value) {
+async function updateSetting(key, value) {
+    const restrictedKeys = ['enableServerCache', 'enableServerLyricCache', 'serverCacheLocation'];
+    const isPublic = !currentListData?.username || currentListData?.username === 'default';
+    const enablePublicRestriction = window.lx_config?.['user.enablePublicRestriction'];
+    const isAdmin = !!localStorage.getItem('lx_admin_password');
+
+    // [新增] 权限校验：受限公开用户修改核心设置
+    if (restrictedKeys.includes(key) && isPublic && enablePublicRestriction && !isAdmin) {
+        showError('权限不足：公共用户修改该设置受限，请先验证管理员。');
+        const authorized = await handleAdminAuth('该设置项受限，请输入管理员密码以修改');
+        if (!authorized) {
+            syncSettingsUI(key, settings[key]); // 还原 UI
+            return;
+        }
+    }
+
     settings[key] = value;
     window.settings = settings; // 确保全局引用同步
     try {
@@ -3718,6 +3823,11 @@ const SETTINGS_UI_MAP = {
 
 //缓存设置项
 function syncSettingsUI(key = null, value = null) {
+    const isPublic = !currentListData?.username || currentListData?.username === 'default';
+    const enablePublicRestriction = window.lx_config?.['user.enablePublicRestriction'];
+    const isAdmin = !!localStorage.getItem('lx_admin_password');
+    const restrictedKeys = ['enableServerCache', 'enableServerLyricCache', 'serverCacheLocation'];
+
     const updateItem = (itemKey, itemValue, isSingle) => {
         const config = SETTINGS_UI_MAP[itemKey];
         if (!config) return;
@@ -3726,10 +3836,25 @@ function syncSettingsUI(key = null, value = null) {
         if (el) {
             if (config.type === 'checkbox') el.checked = !!itemValue;
             else el.value = itemValue;
+
+            // [新增] 禁用受限设置项
+            if (restrictedKeys.includes(itemKey) && isPublic && enablePublicRestriction && !isAdmin) {
+                el.disabled = true;
+                // 查找父级 label 或容器进行置灰
+                const container = el.closest('.flex.items-center.justify-between') || el.parentElement;
+                if (container) container.classList.add('opacity-40', 'pointer-events-none');
+            } else {
+                el.disabled = false;
+                const container = el.closest('.flex.items-center.justify-between') || el.parentElement;
+                if (container) container.classList.remove('opacity-40', 'pointer-events-none');
+            }
         }
 
         if (config.action) config.action(itemValue, isSingle);
     };
+
+    // [新增] 更新管理员 UI 状态 (标签、按钮)
+    if (typeof updateAdminUI === 'function') updateAdminUI();
 
     if (key !== null && value !== null) {
         // 单项更新
@@ -3834,6 +3959,26 @@ async function clearCache(type) {
     let clearServerLyric = false;
     if (type === 'lyric') {
         clearServerLyric = await showSelect('清除缓存', '是否同时清除本地缓存文件夹内的歌词LRC文件？', { danger: true });
+
+        if (clearServerLyric) {
+            const isPublicUser = !window.currentListData || !window.currentListData.username || window.currentListData.username === 'default';
+            if (isPublicUser && window.lx_config && window.lx_config['user.enablePublicRestriction']) {
+                const isAdminSession = localStorage.getItem('lx_admin_password');
+                const enableServerLyricCache = window.settings && window.settings.enableServerLyricCache === true;
+                if (!enableServerLyricCache && !isAdminSession) {
+                    if (typeof window.handleAdminAuth === 'function') {
+                        const authorized = await window.handleAdminAuth('清除服务器歌词缓存需要管理员身份');
+                        if (!authorized) {
+                            // 验证失败或取消时，只取消服务端歌词清理，不影响浏览器层面的缓存清理
+                            clearServerLyric = false;
+                        }
+                    } else {
+                        showError('清除服务器歌词缓存受限，需要管理员身份');
+                        clearServerLyric = false;
+                    }
+                }
+            }
+        }
     }
 
     let count = 0;
@@ -4203,6 +4348,20 @@ function updateCacheBatchCount() {
 }
 
 async function removeCacheItem(filename) {
+    if ((!window.currentListData || !window.currentListData.username || window.currentListData.username === 'default') && window.lx_config && window.lx_config['user.enablePublicRestriction']) {
+        const isAdminSession = localStorage.getItem('lx_admin_password');
+        const enableServerCache = window.settings && window.settings.enableServerCache === true;
+        if (!enableServerCache && !isAdminSession) {
+            if (typeof window.handleAdminAuth === 'function') {
+                const authorized = await window.handleAdminAuth('删除服务器缓存文件需要需要管理员身份');
+                if (!authorized) return;
+            } else {
+                showError('删除服务器缓存文件受限，需要管理员身份');
+                return;
+            }
+        }
+    }
+
     if (!(await showSelect('确定删除', '确认从服务器永久删除此缓存文件吗？', { danger: true }))) return;
 
     try {
@@ -4233,6 +4392,20 @@ async function batchDeleteCache() {
         return;
     }
 
+    if ((!window.currentListData || !window.currentListData.username || window.currentListData.username === 'default') && window.lx_config && window.lx_config['user.enablePublicRestriction']) {
+        const isAdminSession = localStorage.getItem('lx_admin_password');
+        const enableServerCache = window.settings && window.settings.enableServerCache === true;
+        if (!enableServerCache && !isAdminSession) {
+            if (typeof window.handleAdminAuth === 'function') {
+                const authorized = await window.handleAdminAuth('批量删除服务器缓存需要需要管理员身份');
+                if (!authorized) return;
+            } else {
+                showError('批量删除服务器缓存受限，需要管理员身份');
+                return;
+            }
+        }
+    }
+
     if (!(await showSelect('批量删除', `确定要删除这 ${selectedCacheFiles.size} 个缓存文件吗？`, { danger: true }))) return;
 
     try {
@@ -4259,6 +4432,20 @@ async function batchDeleteCache() {
 }
 
 async function clearServerCache() {
+    if ((!window.currentListData || !window.currentListData.username || window.currentListData.username === 'default') && window.lx_config && window.lx_config['user.enablePublicRestriction']) {
+        const isAdminSession = localStorage.getItem('lx_admin_password');
+        const enableServerCache = window.settings && window.settings.enableServerCache === true;
+        if (!enableServerCache && !isAdminSession) {
+            if (typeof window.handleAdminAuth === 'function') {
+                const authorized = await window.handleAdminAuth('完全清理服务器缓存需要需要管理员身份');
+                if (!authorized) return;
+            } else {
+                showError('完全清理服务器缓存受限，需要管理员身份');
+                return;
+            }
+        }
+    }
+
     if (!(await showSelect('完全清理', '确定要清除所有服务器缓存吗？', { danger: true }))) return;
 
     try {
@@ -5185,21 +5372,31 @@ function switchSyncMode(mode) {
 async function pushSettingsToServer() {
     if (!settings.saveAccountSettingsToFile) return;
     // Only local sync mode supports this for now
-    if (localStorage.getItem('lx_sync_mode') !== 'local') return;
+    if (localStorage.getItem('lx_sync_mode') !== 'local' && !window.lx_config?.['user.enablePublicRestriction']) return;
 
-    const user = localStorage.getItem('lx_sync_user');
-    const pass = localStorage.getItem('lx_sync_pass');
+    let user = localStorage.getItem('lx_sync_user');
+    let pass = localStorage.getItem('lx_sync_pass');
+
+    // 如果是公开限制模式，且没有设置账号，使用默认值
+    if (!user && window.lx_config?.['user.enablePublicRestriction']) {
+        user = 'default';
+        pass = 'default';
+    }
 
     if (!user || !pass) return;
 
     try {
+        const headers = {
+            'Content-Type': 'application/json',
+            'x-user-name': user,
+            'x-user-password': pass
+        };
+        const adminPass = localStorage.getItem('lx_admin_password');
+        if (adminPass) headers['x-frontend-auth'] = adminPass;
+
         const res = await fetch('/api/user/settings', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-user-name': user,
-                'x-user-password': pass
-            },
+            headers: headers,
             body: JSON.stringify(settings)
         });
         if (res.ok) {
@@ -5217,18 +5414,28 @@ async function pushSettingsToServer() {
 
 async function fetchSettingsFromServer() {
     if (!settings.saveAccountSettingsToFile) return;
-    const user = localStorage.getItem('lx_sync_user');
-    const pass = localStorage.getItem('lx_sync_pass');
+    let user = localStorage.getItem('lx_sync_user');
+    let pass = localStorage.getItem('lx_sync_pass');
+
+    // 如果是公开限制模式，且没有设置账号，使用默认值
+    if (!user && window.lx_config?.['user.enablePublicRestriction']) {
+        user = 'default';
+        pass = 'default';
+    }
 
     if (!user || !pass) return;
 
     try {
         console.log('[Settings] 正在从服务器尝试加载设置...');
+        const headers = {
+            'x-user-name': user,
+            'x-user-password': pass
+        };
+        const adminPass = localStorage.getItem('lx_admin_password');
+        if (adminPass) headers['x-frontend-auth'] = adminPass;
+
         const res = await fetch('/api/user/settings', {
-            headers: {
-                'x-user-name': user,
-                'x-user-password': pass
-            }
+            headers: headers
         });
         if (res.ok) {
             const serverSettings = await res.json();
@@ -6221,11 +6428,26 @@ async function handleFileUpload(input) {
 
         // 先验证脚本
         showInfo('正在验证脚本...');
-        const validation = await fetch('/api/custom-source/validate', {
+        const adminPass = localStorage.getItem('lx_admin_password');
+        const headers = { 'Content-Type': 'application/json' };
+        if (adminPass) headers['x-frontend-auth'] = adminPass;
+
+        let validationRes = await fetch('/api/custom-source/validate', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: headers,
             body: JSON.stringify({ script: content })
-        }).then(r => r.json());
+        });
+
+        if (validationRes.status === 403) {
+            const errData = await validationRes.json();
+            showError(errData.error || '权限限制：请先登录管理员。');
+            const authorized = await handleAdminAuth('上传自定义源需要管理员权限');
+            if (authorized) return handleFileUpload(input);
+            input.value = '';
+            return;
+        }
+
+        const validation = await validationRes.json();
 
         if (!validation.valid && !validation.requireUnsafe) {
             showError(`脚本无效: ${validation.error}`);
@@ -6282,36 +6504,56 @@ async function handleUrlImport() {
     try {
         showInfo('正在获取并验证远程脚本...');
 
-        // 尝试从 URL 截取一个初始建议名，后端 generateId 会最终决定真实文件名
-        const filename = url.split('/').pop().split('?')[0] || '';
+        const username = currentListData?.username || 'default';
+        const headers = { 'Content-Type': 'application/json' };
+        const adminPass = localStorage.getItem('lx_admin_password');
+        if (adminPass) headers['x-frontend-auth'] = adminPass;
 
         // 从服务器代理下载
         const response = await fetch(`/api/custom-source/import`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: headers,
             body: JSON.stringify({
                 url,
-                filename,
-                username: currentListData?.username || 'default'
+                filename: url.split('/').pop().split('?')[0] || '',
+                username: username
             })
         });
 
+        if (response.status === 403) {
+            const data = await response.json();
+            showError(data.error || '权限限制：请先登录管理员。');
+            const authorized = await handleAdminAuth('导入自定义源需要管理员权限');
+            if (authorized) return handleUrlImport();
+            return;
+        }
+
         let result = await response.json();
+
+        if (!response.ok || (result.success === false && !result.requireUnsafe)) {
+            throw new Error(result.error || `HTTP ${response.status}`);
+        }
 
         // 如果需要不安全模式确认
         if (result.requireUnsafe) {
             const confirmed = await showSelect('安全风险确认', result.message || '该脚本需要原生 VM 模式运行，可能存在安全风险，是否继续？', { danger: true, confirmText: '允许并导入' });
             if (confirmed) {
+                const retryHeaders = { 'Content-Type': 'application/json' };
+                if (adminPass) retryHeaders['x-frontend-auth'] = adminPass;
                 const retryResp = await fetch(`/api/custom-source/import`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: retryHeaders,
                     body: JSON.stringify({
                         url,
                         filename,
-                        username: currentListData?.username || 'default',
+                        username: username,
                         allowUnsafeVM: true
                     })
                 });
+                if (retryResp.status === 403) {
+                    showError('管理员验证校验失败');
+                    return;
+                }
                 result = await retryResp.json();
             } else {
                 showInfo('已取消导入');
@@ -6331,9 +6573,13 @@ async function handleUrlImport() {
 
 // 上传自定义源到服务器
 async function uploadCustomSource(filename, content, type, allowUnsafeVM = false) {
+    const headers = { 'Content-Type': 'application/json' };
+    const adminPass = localStorage.getItem('lx_admin_password');
+    if (adminPass) headers['x-frontend-auth'] = adminPass;
+
     const response = await fetch('/api/custom-source/upload', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers,
         body: JSON.stringify({
             filename,
             content,
@@ -6343,12 +6589,29 @@ async function uploadCustomSource(filename, content, type, allowUnsafeVM = false
         })
     });
 
-    if (!response.ok) {
-        const error = await response.text();
-        throw new Error(error || `HTTP ${response.status}`);
+    if (response.status === 403) {
+        const result = await response.json();
+        showError(result.error || '权限不足：请先登录管理员。');
+        const authorized = await handleAdminAuth('上传自定义源需要管理员权限');
+        if (authorized) return uploadCustomSource(filename, content, type, allowUnsafeVM);
+        return;
     }
 
-    return await response.json();
+    if (!response.ok) {
+        const errorText = await response.text();
+        let errMsg = errorText;
+        try {
+            const errJson = JSON.parse(errorText);
+            if (errJson.error) errMsg = errJson.error;
+        } catch (e) { }
+        throw new Error(errMsg || `HTTP ${response.status}`);
+    }
+
+    const result = await response.json();
+    if (result.success === false && !result.requireUnsafe) {
+        throw new Error(result.error || '上传失败');
+    }
+    return result;
 }
 
 // 加载自定义源列表 (随时可以调用以刷新界面)
@@ -6382,12 +6645,12 @@ function updateSourceScopeUI() {
     // Tag Content Logic
     let tagHtml = '';
     if (isPublic) {
-        tagHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200 whitespace-nowrap inline-block">公开</span>`;
+        tagHtml = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-500 whitespace-nowrap inline-block">公开</span>`;
     } else {
         // User logged in
-        let userTag = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-purple-100 text-purple-700 border border-purple-200 whitespace-nowrap inline-block">${username}</span>`;
+        let userTag = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-600 whitespace-nowrap inline-block">${username}</span>`;
         if (showPublic) {
-            userTag += `<span class="ml-1 px-2 py-0.5 rounded text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200 whitespace-nowrap inline-block">公开</span>`
+            userTag += `<span class="ml-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-500 whitespace-nowrap inline-block">公开</span>`
         }
         tagHtml = userTag;
     }
@@ -6460,10 +6723,10 @@ async function renderCustomSources() {
                     'mg': { name: '咪咕', color: 't-badge-pink' }
                 };
 
-                supportedBadges = `<div class="flex flex-wrap gap-2 mt-2">
+                supportedBadges = `<div class="flex flex-wrap gap-1.5 mt-2">
                 ${source.supportedSources.map(s => {
                     const info = sourceMap[s] || { name: s, color: 't-badge-gray' };
-                    return `<span class="px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors ${info.color}">${info.name}</span>`;
+                    return `<span class="px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors border border-transparent ${info.color}">${info.name}</span>`;
                 }).join('')}
             </div>`;
             } else {
@@ -6498,20 +6761,16 @@ async function renderCustomSources() {
             </div>
             <div class="flex justify-between items-start flex-1 min-w-0">
                 <div class="flex-1 pr-4 min-w-0">
-                    <div class="flex items-center gap-2 mb-1 flex-wrap">
-                        <div class="flex items-center gap-2 min-w-0 flex-1">
-                            <i class="fas fa-file-code text-emerald-500 flex-shrink-0"></i>
-                            ${createMarqueeHtml(source.name, "font-bold t-text-main text-sm")}
-                        </div>
-                        <div class="flex items-center gap-2">
-                             ${statusBadge}
-                        </div>
+                    <div class="flex items-center gap-2 mb-1">
+                        <i class="fas fa-file-code text-emerald-500 flex-shrink-0"></i>
+                        ${createMarqueeHtml(source.name, "font-bold t-text-main text-sm")}
                     </div>
                     ${errorMsg}
-                    <div class="flex items-center text-[10px] t-text-muted space-x-2 mt-1">
-                        <span><i class="fas fa-user mr-1"></i>${source.author || '未知'}</span>
-                        <span><i class="far fa-hdd mr-1"></i>${size}</span>
-                        <span class="t-bg-main t-text-muted px-1.5 py-0.5 rounded shrink-0 transition-colors font-mono pointer-events-none">${source.version ? (/^v/i.test(source.version) ? source.version : 'v' + source.version) : '未知'}</span>
+                    <div class="flex flex-wrap items-center text-[10px] t-text-muted gap-x-3 gap-y-1 mt-1.5">
+                        <span class="flex items-center"><i class="fas fa-user mr-1 opacity-70"></i>${source.author || '未知'}</span>
+                        <span class="flex items-center"><i class="far fa-hdd mr-1 opacity-70"></i>${size}</span>
+                        <span class="t-bg-main t-text-muted px-1.5 py-0.5 rounded-lg shrink-0 transition-colors font-mono pointer-events-none border t-border-main">${source.version ? (/^v/i.test(source.version) ? source.version : 'v' + source.version) : '未知'}</span>
+                        ${statusBadge}
                     </div>
                     ${supportedBadges}
                 </div>
@@ -6565,8 +6824,9 @@ async function renderCustomSources() {
                 fallbackTolerance: 0,
 
                 // 响应优化
-                delay: 0,
-                touchStartThreshold: 3,
+                delay: 200,
+                delayOnTouchOnly: true,
+                touchStartThreshold: 5,
 
                 // 排序逻辑
                 swapThreshold: 0.5,
@@ -6612,11 +6872,26 @@ async function renderCustomSources() {
 
                     try {
                         const username = currentListData?.username || 'default';
+                        const headers = { 'Content-Type': 'application/json' };
+                        const adminPass = localStorage.getItem('lx_admin_password');
+                        if (adminPass) headers['x-frontend-auth'] = adminPass;
+
                         const response = await fetch('/api/custom-source/reorder', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: headers,
                             body: JSON.stringify({ username, sourceIds: finalOrderIds })
                         });
+
+                        if (response.status === 403) {
+                            const result = await response.json();
+                            showError(result.error || '权限限制：保存排序需要管理员权限。');
+                            const authorized = await handleAdminAuth('保存排序需要管理员身份');
+                            if (authorized) {
+                                // 管理员验证成功后会自动刷新 UI 状态
+                                renderCustomSources();
+                            }
+                            return;
+                        }
 
                         if (!response.ok) throw new Error('Reorder failed');
 
@@ -6624,7 +6899,7 @@ async function renderCustomSources() {
                         renderCustomSources();
                     } catch (error) {
                         console.error('Reorder error:', error);
-                        showError('保存排序失败');
+                        showError('保存排序失败，请检查网络或管理员权限状态');
                         renderCustomSources(); // Revert UI
                     }
                 }
@@ -6666,11 +6941,23 @@ async function reloadSource(sourceId) {
 async function toggleSource(sourceId, currentEnabled, allowUnsafeVM = false) {
     try {
         const username = currentListData?.username || 'default';
+        const headers = { 'Content-Type': 'application/json' };
+        const adminPass = localStorage.getItem('lx_admin_password');
+        if (adminPass) headers['x-frontend-auth'] = adminPass;
+
         const response = await fetch('/api/custom-source/toggle', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: headers,
             body: JSON.stringify({ username, sourceId, enabled: !currentEnabled, allowUnsafeVM }) // Send new state
         });
+
+        if (response.status === 403) {
+            const data = await response.json();
+            showError(data.error || '权限限制：需要管理员身份。');
+            const authorized = await handleAdminAuth('修改自定义源状态需要管理员权限');
+            if (authorized) return await toggleSource(sourceId, currentEnabled, allowUnsafeVM);
+            return;
+        }
 
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
@@ -6701,11 +6988,23 @@ async function deleteSource(sourceId) {
 
     try {
         const username = currentListData?.username || 'default';
+        const headers = { 'Content-Type': 'application/json' };
+        const adminPass = localStorage.getItem('lx_admin_password');
+        if (adminPass) headers['x-frontend-auth'] = adminPass;
+
         const response = await fetch('/api/custom-source/delete', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: headers,
             body: JSON.stringify({ username, sourceId })
         });
+
+        if (response.status === 403) {
+            const data = await response.json();
+            showError(data.error || '权限限制：需要管理员身份。');
+            const authorized = await handleAdminAuth('删除自定义源需要管理员权限');
+            if (authorized) return await deleteSource(sourceId);
+            return;
+        }
 
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
@@ -7433,7 +7732,8 @@ function showInput(title, message, options = {}) {
         defaultValue = '',
         confirmText = '确定',
         cancelText = '取消',
-        confirmColor = 'bg-emerald-500'
+        confirmColor = 'bg-emerald-500',
+        inputType = 'text'
     } = options;
 
     return new Promise((resolve) => {
@@ -7457,7 +7757,7 @@ function showInput(title, message, options = {}) {
                         </div>
                         <div class="flex-1">
                             <p class="text-sm t-text-muted leading-relaxed mb-4">${message}</p>
-                            <input type="text" id="modal-input" 
+                            <input type="${inputType}" id="modal-input" 
                                 class="w-full px-4 py-2.5 t-bg-main border t-border-main rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-sm"
                                 placeholder="${placeholder}" value="${defaultValue}">
                         </div>
@@ -7653,6 +7953,22 @@ async function handleDownloadClick(event) {
             showError('下载功能未就绪');
         }
     } else if (selected === '缓存到服务器') {
+        // [新增] 权限校验：受限公开用户需要验证管理员
+        const isPublic = !window.currentListData?.username || window.currentListData?.username === 'default';
+        const enablePublicRestriction = window.lx_config?.['user.enablePublicRestriction'];
+        const isAdmin = !!localStorage.getItem('lx_admin_password');
+        const isServerCacheAllowed = window.settings?.enableServerCache === true;
+
+        if (isPublic && enablePublicRestriction && !isServerCacheAllowed && !isAdmin) {
+            showError('权限限制：缓存到服务器需要验证管理员。');
+            if (typeof window.handleAdminAuth === 'function') {
+                const authorized = await window.handleAdminAuth('缓存到服务器需要验证管理员身份');
+                if (!authorized) return;
+            } else {
+                return;
+            }
+        }
+
         if (typeof downloadSong === 'function') {
             downloadSong(song, null, false, '缓存到服务器');
         } else {

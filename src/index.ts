@@ -137,7 +137,7 @@ const margeConfig = (p: string) => {
   return true
 }
 
-
+//加载环境变量
 const p1 = path.join(__dirname, '../config.js')
 fs.existsSync(p1) && margeConfig(p1)
 envParams.CONFIG_PATH && fs.existsSync(envParams.CONFIG_PATH) && margeConfig(envParams.CONFIG_PATH)
@@ -194,6 +194,9 @@ if (envParams.WEBPLAYER_PASSWORD) {
 }
 if (envParams.DISABLE_TELEMETRY) {
   global.lx.config.disableTelemetry = envParams.DISABLE_TELEMETRY === 'true'
+}
+if (envParams.ENABLE_PUBLIC_USER_RESTRICTION) {
+  global.lx.config['user.enablePublicRestriction'] = envParams.ENABLE_PUBLIC_USER_RESTRICTION === 'true'
 }
 
 if (envUsers.length) {
@@ -398,6 +401,12 @@ if (webdavSync.isConfigured()) {
 
 // 导出 webdavSync 实例供 API 使用
 global.lx.webdavSync = webdavSync
+
+// [新增] 确保数据目录下的 _open 目录存在 (用于公共受限资源)
+const openDir = path.join(global.lx.userPath, '_open')
+if (!fs.existsSync(openDir)) {
+  fs.mkdirSync(openDir, { recursive: true })
+}
 
 startServer(global.lx.config.port, global.lx.config.bindIP)
 

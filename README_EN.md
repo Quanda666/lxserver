@@ -5,7 +5,7 @@
 <div align="center">
   <p>
     <img src="https://img.shields.io/badge/build-passing-brightgreen?style=flat-square" alt="Build Status">
-    <img src="https://img.shields.io/badge/version-v1.7.6-blue?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-v1.7.7-blue?style=flat-square" alt="Version">
     <img src="https://img.shields.io/badge/node-%3E%3D16-green?style=flat-square" alt="Node Version">
     <img src="https://img.shields.io/github/license/XCQ0607/lxserver?style=flat-square" alt="License">
     <br>
@@ -166,7 +166,12 @@ Edit `config.js` directly. Environment variables take precedence:
 | `FRONTEND_PASSWORD` | `frontend.password` | Web dashboard password | `123456` |
 | `SERVER_NAME` | `serverName` | Sync service name | `My Sync Server` |
 | `MAX_SNAPSHOT_NUM` | `maxSnapshotNum` | Max snapshots to keep | `10` |
+| `CONFIG_PATH` | - | Absolute path to external config file | - |
+| `DATA_PATH` | - | Absolute path to data storage directory | `./data` |
+| `LOG_PATH` | - | Absolute path to log output directory | `./logs` |
 | `PROXY_HEADER` | `proxy.header` | Proxy IP header (e.g., `x-real-ip`) | - |
+| `USER_ENABLE_ROOT` | `user.enableRoot` | Enable root path (use `ip:port`, password must be unique) | `false` |
+| `USER_ENABLE_PATH` | `user.enablePath` | Enable user path (use `ip:port/username`, passwords can repeat) | `true` |
 | `WEBDAV_URL` | `webdav.url` | WebDAV URL | - |
 | `WEBDAV_USERNAME` | `webdav.username` | WebDAV Username | - |
 | `WEBDAV_PASSWORD` | `webdav.password` | WebDAV Password | - |
@@ -174,6 +179,11 @@ Edit `config.js` directly. Environment variables take precedence:
 | `ENABLE_WEBPLAYER_AUTH` | `player.enableAuth` | Enable Web Player password | `false` |
 | `WEBPLAYER_PASSWORD` | `player.password` | Web Player password | `123456` |
 | `DISABLE_TELEMETRY` | `disableTelemetry` | Disable anonymous telemetry and update notifications | `false` |
+| `ENABLE_PUBLIC_USER_RESTRICTION` | `user.enablePublicRestriction` | Enable public user permission restriction (restrict upload/delete public sources) | `true` |
+| `LIST_ADD_MUSIC_LOCATION_TYPE` | `list.addMusicLocationType` | Position when adding songs to list (`top` / `bottom`) | `top` |
+| `LX_USER_<username>` | `users` array | Quickly add a user, value is the password (e.g., `LX_USER_test=123`) | - |
+
+> **Note**: The service currently supports two types of sync connection URLs: `Root Path` (URL configuration is `ip:port`) and `User Path` (URL configuration is `ip:port/username`). If the User Path is disabled, all sync user passwords must be completely unique.
 
 ---
 

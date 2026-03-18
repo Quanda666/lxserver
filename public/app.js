@@ -1318,6 +1318,9 @@ class App {
             if (form.elements['user.enableRoot']) {
                 form.elements['user.enableRoot'].checked = config['user.enableRoot'] === true;
             }
+            if (form.elements['user.enablePublicRestriction']) {
+                form.elements['user.enablePublicRestriction'].checked = config['user.enablePublicRestriction'] === true;
+            }
             form.elements['frontend.password'].value = config['frontend.password'] || '';
 
             // Web播放器配置
@@ -1357,6 +1360,7 @@ class App {
             'proxy.header': formData.get('proxy.header'),
             'user.enablePath': formData.get('user.enablePath') === 'on',
             'user.enableRoot': formData.get('user.enableRoot') === 'on',
+            'user.enablePublicRestriction': formData.get('user.enablePublicRestriction') === 'on',
             'frontend.password': formData.get('frontend.password'),
             'player.enableAuth': formData.get('player.enableAuth') === 'on',
             'player.password': formData.get('player.password'),

@@ -431,6 +431,7 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
         'proxy.enabled': global.lx.config['proxy.enabled'],
         'user.enablePath': global.lx.config['user.enablePath'],
         'user.enableRoot': global.lx.config['user.enableRoot'],
+        'user.enablePublicRestriction': global.lx.config['user.enablePublicRestriction'] || false,
         maxSnapshotNum: global.lx.config.maxSnapshotNum,
         'list.addMusicLocationType': global.lx.config['list.addMusicLocationType'],
         'player.enableAuth': global.lx.config['player.enableAuth'] || false,
@@ -1024,15 +1025,23 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
       if (pathname === '/api/user/settings' && req.method === 'GET') {
         const username = req.headers['x-user-name'] as string
         const password = req.headers['x-user-password'] as string
+        const isPublic = !username || username === 'default'
+        let user = null
 
-        const user = global.lx.config.users.find(u => u.name === username && u.password === password)
+        // 如果是公开用户，且启用了限制，允许通过虚拟鉴权
+        if (isPublic && global.lx.config['user.enablePublicRestriction']) {
+          user = { name: 'default' }
+        } else {
+          user = global.lx.config.users.find(u => u.name === username && u.password === password)
+        }
+
         if (!user) {
           res.writeHead(401)
           res.end('Unauthorized')
           return
         }
 
-        const userSpace = getUserSpace(username)
+        const userSpace = getUserSpace(isPublic ? '_open' : username)
         const settingsPath = path.join(userSpace.dataManage.userDir, File.userSettingsJSON)
 
         if (fs.existsSync(settingsPath)) {
@@ -1051,8 +1060,19 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
       if (pathname === '/api/user/settings' && req.method === 'POST') {
         const username = req.headers['x-user-name'] as string
         const password = req.headers['x-user-password'] as string
+        const isPublic = !username || username === 'default'
 
-        const user = global.lx.config.users.find(u => u.name === username && u.password === password)
+        // 如果是公开用户，且启用了限制，检查管理员密码
+        if (isPublic && global.lx.config['user.enablePublicRestriction']) {
+          const auth = req.headers['x-frontend-auth']
+          if (auth !== global.lx.config['frontend.password']) {
+            res.writeHead(403, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ success: false, error: '权限不足：公共用户保存设置受限，请先验证管理员身份。' }))
+            return
+          }
+        }
+
+        const user = isPublic ? { name: 'default' } : global.lx.config.users.find(u => u.name === username && u.password === password)
         if (!user) {
           res.writeHead(401)
           res.end('Unauthorized')
@@ -1061,13 +1081,22 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
 
         void readBody(req).then(body => {
           try {
-            const userSpace = getUserSpace(username)
+            const userSpace = getUserSpace(isPublic ? '_open' : username)
             const settingsPath = path.join(userSpace.dataManage.userDir, File.userSettingsJSON)
 
-            // Validate JSON
-            JSON.parse(body)
+            let settings = JSON.parse(body)
 
-            fs.writeFileSync(settingsPath, body, 'utf8')
+            // [核心逻辑] 如果是受限的公开用户，仅允许保存特定的 3 项设置
+            if (isPublic && global.lx.config['user.enablePublicRestriction']) {
+              const restrictedSettings: any = {}
+              const allowedKeys = ['enableServerCache', 'enableServerLyricCache', 'serverCacheLocation']
+              allowedKeys.forEach(key => {
+                if (settings[key] !== undefined) restrictedSettings[key] = settings[key]
+              })
+              settings = restrictedSettings
+            }
+
+            fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8')
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ success: true }))
           } catch (err: any) {
@@ -1139,12 +1168,32 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
       // [新增] File Cache APIs
       // 1. Config Cache Location
       if (pathname === '/api/music/cache/config' && req.method === 'POST') {
+        const username = (req.headers['x-user-name'] as string) || ''
+        const isPublic = !username || username === 'default'
+
         void readBody(req).then(body => {
           try {
             const { location } = JSON.parse(body)
             if (location) {
+              // [优化] 如果请求的位置与当前一致，直接返回成功，不触发权限拦截
+              if (location === fileCache.getCacheLocation()) {
+                res.writeHead(200, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ success: true }))
+                return
+              }
+
+              // [新增] 权限检查
+              if (isPublic && global.lx.config['user.enablePublicRestriction']) {
+                const auth = req.headers['x-frontend-auth']
+                if (auth !== global.lx.config['frontend.password']) {
+                  res.writeHead(403, { 'Content-Type': 'application/json' })
+                  res.end(JSON.stringify({ success: false, error: '权限不足：公共用户修改缓存位置受限，请输入管理员密码。' }))
+                  return
+                }
+              }
+
               fileCache.setCacheLocation(location)
-              res.writeHead(200)
+              res.writeHead(200, { 'Content-Type': 'application/json' })
               res.end(JSON.stringify({ success: true }))
             } else {
               res.writeHead(400)
@@ -1931,7 +1980,8 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
           'Cache-Control': 'no-cache'
         })
         res.end(JSON.stringify({
-          'player.enableAuth': global.lx.config['player.enableAuth'] || false
+          'player.enableAuth': global.lx.config['player.enableAuth'] || false,
+          'user.enablePublicRestriction': global.lx.config['user.enablePublicRestriction'] || false
         }))
         return
       }
@@ -2380,6 +2430,18 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
       // [新增] 封面 API (备用)
 
       // [新增] 自定义源管理 API
+      if (pathname.startsWith('/api/custom-source/') && req.method === 'POST') {
+        // 白名单：只有列表获取不需要校验管理员密码
+        if (pathname !== '/api/custom-source/list') {
+          const auth = req.headers['x-frontend-auth']
+          if (auth !== global.lx.config['frontend.password']) {
+            res.writeHead(403, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ success: false, error: '权限不足：管理自定义源需要先验证管理员身份。' }))
+            return
+          }
+        }
+      }
+
       if (pathname === '/api/custom-source/validate' && req.method === 'POST') {
         return customSourceHandlers.handleValidate(req, res)
       }
@@ -2582,6 +2644,7 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
             'proxy.header': global.lx.config['proxy.header'],
             'user.enablePath': global.lx.config['user.enablePath'],
             'user.enableRoot': global.lx.config['user.enableRoot'],
+            'user.enablePublicRestriction': global.lx.config['user.enablePublicRestriction'],
             'frontend.password': global.lx.config['frontend.password'],
             'player.enableAuth': global.lx.config['player.enableAuth'] || false,
             'player.password': global.lx.config['player.password'] || '',
@@ -2610,6 +2673,7 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
               if (newConfig['user.enablePath'] !== undefined) global.lx.config['user.enablePath'] = newConfig['user.enablePath']
               // 新增：处理 user.enableRoot
               if (newConfig['user.enableRoot'] !== undefined) global.lx.config['user.enableRoot'] = newConfig['user.enableRoot']
+              if (newConfig['user.enablePublicRestriction'] !== undefined) global.lx.config['user.enablePublicRestriction'] = newConfig['user.enablePublicRestriction']
 
               let warning = ''
 
@@ -2657,6 +2721,7 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
                 'proxy.header': global.lx.config['proxy.header'],
                 'user.enablePath': global.lx.config['user.enablePath'],
                 'user.enableRoot': global.lx.config['user.enableRoot'],
+                'user.enablePublicRestriction': global.lx.config['user.enablePublicRestriction'],
                 maxSnapshotNum: global.lx.config.maxSnapshotNum,
                 'list.addMusicLocationType': global.lx.config['list.addMusicLocationType'],
                 'frontend.password': global.lx.config['frontend.password'],

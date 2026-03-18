@@ -452,6 +452,18 @@
                         <div class="form-group"
                             style="margin-top: 20px; border-top: 1px solid var(--glass-border); padding-top: 20px;">
                             <label class="checkbox-label">
+                                <input type="checkbox" name="user.enablePublicRestriction" />
+                                <span>开启公开功能限制</span>
+                            </label>
+                            <small
+                                style="color: var(--text-secondary); font-size: 0.875rem; display: block; margin-top: 0.25rem;">
+                                开启后，未校验专属密码的用户进入播放界面将被限制功能。若要管理源或操作受限功能需输入"Web 播放器访问密码"进行验证。
+                            </small>
+                        </div>
+
+                        <div class="form-group"
+                            style="margin-top: 20px; border-top: 1px solid var(--glass-border); padding-top: 20px;">
+                            <label class="checkbox-label">
                                 <input type="checkbox" name="user.enableRoot" />
                                 <span>启用根路径</span>
                             </label>

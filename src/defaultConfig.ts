@@ -7,6 +7,7 @@ const config: LX.Config = {
   port: 9527, // 端口
   'user.enablePath': true, // 是否开启用户路径
   'user.enableRoot': false, // 是否开启根路径
+  'user.enablePublicRestriction': true, // 是否启用公开用户权限限制
 
   maxSnapshotNum: 10, // 公共最大备份快照数
   'list.addMusicLocationType': 'top', // 公共添加歌曲到我的列表时的位置 top | bottom，参考客户端的「设置 → 列表设置 → 添加歌曲到列表时的位置」
