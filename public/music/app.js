@@ -70,7 +70,7 @@ const DEFAULT_SETTINGS = {
     lyricFontSize: 1.25, // 歌词字体大小 (rem)
     lyricFontFamily: '', // 词字体
     switchPlaylistOnSearchPlay: true, // 播放搜索歌曲时切换歌单 (默认开启)
-    switchPlaylistOnSongListPlay: true, // 播放歌单歌曲时切换歌单 (默认开启)
+    switchPlaylistOnSongListPlay: true, // 播放歌单/排行榜歌曲时切换歌单 (默认开启)
     autoResume: true, // 自动恢复进度 (默认开启)
     showSidebarSongInfo: true, // 展示侧边栏封面
     enableCrossfade: true, // 音频淡入淡出
@@ -540,6 +540,13 @@ function switchTab(tabId) {
 
     if (tabId === 'songlist') {
         document.getElementById('page-title').innerText = "歌单";
+    }
+
+    if (tabId === 'leaderboard') {
+        document.getElementById('page-title').innerText = "排行榜";
+        if (window.LeaderboardManager && !window.LeaderboardManager.initialized) {
+            window.LeaderboardManager.init();
+        }
     }
 
     // Collapse Favorites if leaving
@@ -2425,15 +2432,32 @@ async function playSong(song, index, forceQuality = null, noPlay = false, isRetr
 
             // Save history and handle list logic
             savePlayHistory(song, currentQuality);
-            const finalAdd = shouldAddToDefault !== null ? shouldAddToDefault : (currentPlayingScope === 'network' || currentPlayingScope === 'songlist');
+            const finalAdd = shouldAddToDefault !== null ? shouldAddToDefault : (currentPlayingScope === 'network' || currentPlayingScope === 'songlist' || currentPlayingScope === 'leaderboard');
             if (finalAdd) {
                 addToDefaultList(song);
-                let shouldSwitch = (currentPlayingScope === 'songlist') ? (settings.switchPlaylistOnSongListPlay !== false) : (settings.switchPlaylistOnSearchPlay !== false);
-                if (!shouldSwitch && typeof currentListData !== 'undefined' && currentListData.defaultList) {
-                    currentPlaylist = currentListData.defaultList;
-                    currentIndex = 0;
-                    currentPlayingScope = 'local_list';
-                    window.currentViewingListId = 'default';
+                // 切换逻辑说明：
+                // - 搜索结果(network)：updatePlaylist 把队列设为搜索结果，开启设置才把队列切换到 defaultList
+                // - 歌单/排行榜(songlist/leaderboard)：updatePlaylist 已把队列设为歌单/排行榜，
+                //   开启设置=保持歌单/排行榜队列(do nothing)，关闭设置=退回 defaultList
+                const isSongListOrLeaderboard = currentPlayingScope === 'songlist' || currentPlayingScope === 'leaderboard';
+                if (isSongListOrLeaderboard) {
+                    // 歌单/排行榜：关闭"切换歌单"时，才退回 defaultList
+                    const shouldFallback = settings.switchPlaylistOnSongListPlay === false;
+                    if (shouldFallback && typeof currentListData !== 'undefined' && currentListData.defaultList) {
+                        currentPlaylist = currentListData.defaultList;
+                        currentIndex = 0;
+                        currentPlayingScope = 'local_list';
+                        window.currentViewingListId = 'default';
+                    }
+                } else {
+                    // 搜索结果：开启"切换歌单"时，切换到 defaultList
+                    const shouldSwitch = settings.switchPlaylistOnSearchPlay !== false;
+                    if (shouldSwitch && typeof currentListData !== 'undefined' && currentListData.defaultList) {
+                        currentPlaylist = currentListData.defaultList;
+                        currentIndex = 0;
+                        currentPlayingScope = 'local_list';
+                        window.currentViewingListId = 'default';
+                    }
                 }
             }
 
@@ -3628,6 +3652,12 @@ document.addEventListener('keydown', (e) => {
             break;
         case 'KeyG':
             updateSetting('showDetailVisualizer', !settings.showDetailVisualizer);
+            break;
+        case 'KeyH':
+            if (typeof toggleCacheDrawer === 'function') toggleCacheDrawer();
+            break;
+        case 'KeyJ':
+            if (typeof toggleDownloadDrawer === 'function') toggleDownloadDrawer();
             break;
     }
 });

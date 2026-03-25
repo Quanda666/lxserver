@@ -315,7 +315,7 @@
     async function fetchRemoteConfig(url, isManual = false) {
         try {
             const bustUrl = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
-            const res = await fetch(bustUrl);
+            const res = await fetch(bustUrl, { cache: 'no-store' });
             if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
             const data = await res.json();
             let hasUpdate = false;
@@ -390,6 +390,11 @@
     }
 
     function checkUpdates(isManual = false) {
+        // 如果是手动检查，尝试强制刷新 PostHog 配置以获取最新数据
+        if (isManual && typeof posthog !== 'undefined') {
+            try { posthog.reloadFeatureFlags(); } catch (e) { console.error('[Notification] Reload flags failed:', e); }
+        }
+
         // 如果服务没加载，或者配置里明确禁用了，直接弹窗告知原因
         if (typeof posthog === 'undefined' || (window.CONFIG && window.CONFIG.disableTelemetry)) {
             if (isManual) {

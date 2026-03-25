@@ -267,6 +267,7 @@ async function batchDownloadFromList() {
     selectedItems.forEach(id => {
         let song = null;
         if (selectedSongObjects && selectedSongObjects.has(id)) song = selectedSongObjects.get(id);
+        if (!song && typeof viewingPlaylist !== 'undefined' && viewingPlaylist) song = findSong(viewingPlaylist, id);
         if (!song && currentPlaylist) song = findSong(currentPlaylist, id);
         if (!song && currentListData) {
             if (currentListData.defaultList) song = findSong(currentListData.defaultList, id);

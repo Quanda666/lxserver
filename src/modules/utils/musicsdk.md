@@ -463,3 +463,17 @@ this.requestObj = createHttpFetch(`https://music.migu.cn/v3/api/search/suggest?k
 this.requestObj = createHttpFetch(`https://app.u.nf.migu.cn/pc/resource/content/tone_search_suggest/v1.0?text=${encodeURIComponent(str)}`)
 // 处理逻辑同步更新为解析 body.data.songList
 ```
+
+## 9. 酷狗音乐 (kg) - 排行榜封面解析
+**文件路径**: `src/modules/utils/musicSdk/kg/leaderboard.js`
+**修改目的**: 修复排行榜列表歌曲无封面（硬编码为 null）的问题。
+**核心修改**:
+提取 `rawList` 数据中的 `album_sizable_cover` 或 `trans_param.union_cover` 字段作为封面，并替换 `{size}` 占位符为 `400`。
+**修改代码**:
+```javascript
+// 修改前
+img: null,
+
+// 修改后
+img: (item.album_sizable_cover || item.trans_param?.union_cover || '').replace('{size}', '400') || null,
+```

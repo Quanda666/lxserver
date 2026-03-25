@@ -170,7 +170,7 @@ const musicVisualizer = (function () {
             }
 
             // 调整内容区域的间距以防被遮挡
-            const mainViews = document.querySelectorAll('#view-search, #view-favorites, #view-settings, #view-about, #view-player-detail, #view-songlist, #songlist-detail-view');
+            const mainViews = document.querySelectorAll('#view-search, #view-favorites, #view-settings, #view-about, #view-player-detail, #view-songlist, #songlist-detail-view, #view-leaderboard');
             mainViews.forEach(view => {
                 view.style.transition = 'padding-bottom 0.3s ease, padding-top 0.3s ease';
                 const isMobile = window.innerWidth < 768;
@@ -213,7 +213,7 @@ const musicVisualizer = (function () {
                 playerFooter.style.justifyContent = ''; // 复原
             }
             // 复原 Padding
-            const mainViews = document.querySelectorAll('#view-search, #view-favorites, #view-settings, #view-about, #view-player-detail');
+            const mainViews = document.querySelectorAll('#view-search, #view-favorites, #view-settings, #view-about, #view-player-detail, #view-songlist, #songlist-detail-view, #view-leaderboard');
             mainViews.forEach(view => {
                 view.style.paddingBottom = '';
                 const container = view.querySelector('#player-detail-container');

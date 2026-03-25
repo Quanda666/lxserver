@@ -18,25 +18,25 @@
         }
     },
     {
-        "comment": "=== 版本更新 v1.7.7 ===",
-        "id": "update_v1_7_7",
+        "comment": "=== 版本更新 v1.8.0 ===",
+        "id": "update_v1_8_0",
         "status": "active",
         "type": "version",
         "logic": {
-            "target_version": "v1.7.7",
+            "target_version": "v1.8.0",
             "operator": "<",
             "interval_hours": 24
         },
         "ui": {
-            "title": "发现新版本 v1.7.7",
-            "date": "2026-03-18",
-            "message": "本次更新带来了以下升级：\n1. 🔒 权限管理：新增公开用户权限管理，限制未登录用户并要求密码验证。\n2. ☁️ 配置隔离：实现公开用户云端缓存配置隔离同步机制。\n3. 📱 界面优化：优化手机端自定义源UI布局，使其更加紧凑美观。\n4. 🐛 问题修复：修复侧边阴影及自定义源弹窗被播放器遮挡的问题。",
+            "title": "发现新版本 v1.8.0",
+            "date": "2026-03-25",
+            "message": "本次更新带来了以下升级：\n1. 🏆 音乐排行榜：集成多平台榜单数据，支持分页加载与一键播放全部。\n2. ⌨️ 快捷键增强：新增 H (缓存面板) 与 J (下载面板) 快速开关快捷键。\n3. � 词库兼容性：修复并增强了多版本客户端的歌词缓存获取接口。\n4. ⚙️ 系统优化：优化了排行榜默认音源逻辑及部分 WebSocket 同步问题。",
             "confirm_text": "立即查看",
             "cancel_text": "稍后提醒"
         },
         "action": {
             "type": "link",
-            "url": "https://github.com/XCQ0607/lxserver/releases/tag/v1.7.7"
+            "url": "https://github.com/XCQ0607/lxserver/releases/tag/v1.8.0"
         }
     }
 ]

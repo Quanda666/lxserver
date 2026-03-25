@@ -2386,6 +2386,52 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
         return
       }
 
+      // [新增] 排行榜 - 获取榜单列表 API
+      if (pathname === '/api/music/leaderboard/boards' && req.method === 'GET') {
+        const source = urlObj.searchParams.get('source') || 'kg'
+        try {
+          if (!musicSdk[source] || !musicSdk[source].leaderboard) {
+            throw new Error(`Source ${source} does not support leaderboard`)
+          }
+          const result = await musicSdk[source].leaderboard.getBoards()
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'public, max-age=600'
+          })
+          res.end(JSON.stringify(result))
+        } catch (err: any) {
+          console.error(`[Leaderboard Boards] Error:`, err)
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: err.message || '获取排行榜列表失败' }))
+        }
+        return
+      }
+
+      // [新增] 排行榜 - 获取榜单内歌曲 API
+      if (pathname === '/api/music/leaderboard/list' && req.method === 'GET') {
+        const source = urlObj.searchParams.get('source') || 'kg'
+        const bangid = urlObj.searchParams.get('bangid')
+        const page = parseInt(urlObj.searchParams.get('page') || '1')
+        if (!bangid) {
+          res.writeHead(400); res.end('Missing bangid'); return
+        }
+        try {
+          if (!musicSdk[source] || !musicSdk[source].leaderboard) {
+            throw new Error(`Source ${source} does not support leaderboard`)
+          }
+          const result = await musicSdk[source].leaderboard.getList(bangid, page)
+          if (result && result.list) {
+            result.list = result.list.map(normalizeSongInfo)
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify(result))
+        } catch (err: any) {
+          console.error(`[Leaderboard List] Error:`, err)
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: err.message || '获取排行榜歌曲失败' }))
+        }
+        return
+      }
 
       // [新增] 评论 API
       if (pathname === '/api/music/comment' && req.method === 'POST') {

@@ -38,7 +38,7 @@ window.ListSearch = {
         this.state.onlyShowMatches = false;
 
         // Update UI elements if they exist
-        const prefix = this.state.id === 'songlist' ? 'sl-' : 'gl-';
+        const prefix = this.state.id === 'songlist' ? 'sl-' : (this.state.id === 'leaderboard' ? 'lb-' : 'gl-');
         const bar = document.getElementById(`${prefix}local-search-bar`);
         const input = document.getElementById(`${prefix}local-search-input`);
         const filter = document.getElementById(`${prefix}local-search-filter`);
@@ -51,7 +51,7 @@ window.ListSearch = {
     },
 
     toggleBar: function (force) {
-        const prefix = this.state.id === 'songlist' ? 'sl-' : 'gl-';
+        const prefix = this.state.id === 'songlist' ? 'sl-' : (this.state.id === 'leaderboard' ? 'lb-' : 'gl-');
         const bar = document.getElementById(`${prefix}local-search-bar`);
         const input = document.getElementById(`${prefix}local-search-input`);
         const show = typeof force === 'boolean' ? force : bar.classList.contains('hidden');
@@ -67,7 +67,7 @@ window.ListSearch = {
     },
 
     handleSearch: function () {
-        const prefix = this.state.id === 'songlist' ? 'sl-' : 'gl-';
+        const prefix = this.state.id === 'songlist' ? 'sl-' : (this.state.id === 'leaderboard' ? 'lb-' : 'gl-');
         const inputVal = document.getElementById(`${prefix}local-search-input`).value.trim().toLowerCase();
         const nav = document.getElementById(`${prefix}local-search-nav`);
         const countEl = document.getElementById(`${prefix}local-search-count`);
@@ -115,7 +115,7 @@ window.ListSearch = {
 
         this.state.currentIndex = newIdx;
         const targetSongIndex = this.state.matches[newIdx];
-        const prefix = this.state.id === 'songlist' ? 'sl-' : 'gl-';
+        const prefix = this.state.id === 'songlist' ? 'sl-' : (this.state.id === 'leaderboard' ? 'lb-' : 'gl-');
 
         const countEl = document.getElementById(`${prefix}local-search-count`);
         if (countEl) countEl.textContent = `${newIdx + 1}/${this.state.matches.length}`;
@@ -128,9 +128,10 @@ window.ListSearch = {
             const targetPage = Math.floor(referenceIndex / itemsPerPage) + 1;
 
             // 准确获取当前页码
-            const currentPage = (this.state.id === 'global' && typeof window.currentPage !== 'undefined') ? window.currentPage : 1;
+            const currentPage = this.config.getCurrentPage ? this.config.getCurrentPage() :
+                ((this.state.id === 'global' && typeof window.currentPage !== 'undefined') ? window.currentPage : 1);
 
-            if (this.state.id === 'global' && targetPage !== currentPage) {
+            if (targetPage !== currentPage) {
                 this.config.paginationCallback(targetPage, targetSongIndex);
             } else {
                 // 同页：直接刷新高亮并滚动
@@ -151,7 +152,7 @@ window.ListSearch = {
     },
 
     toggleFilter: function () {
-        const prefix = this.state.id === 'songlist' ? 'sl-' : 'gl-';
+        const prefix = this.state.id === 'songlist' ? 'sl-' : (this.state.id === 'leaderboard' ? 'lb-' : 'gl-');
         const filterEl = document.getElementById(`${prefix}local-search-filter`);
         this.state.onlyShowMatches = filterEl ? filterEl.checked : false;
 
@@ -162,10 +163,15 @@ window.ListSearch = {
             const referenceIndex = this.state.onlyShowMatches ? this.state.currentIndex : targetSongIndex;
             const targetPage = Math.floor(referenceIndex / itemsPerPage) + 1;
 
-            if (this.state.id === 'global' && typeof window.currentPage !== 'undefined' && window.currentPage !== targetPage) {
-                if (window.goToPage) {
+            const currentPage = this.config.getCurrentPage ? this.config.getCurrentPage() :
+                ((this.state.id === 'global' && typeof window.currentPage !== 'undefined') ? window.currentPage : 1);
+
+            if (currentPage !== targetPage) {
+                if (this.config.paginationCallback) {
+                    this.config.paginationCallback(targetPage, targetSongIndex);
+                    return;
+                } else if (this.state.id === 'global' && window.goToPage) {
                     window.goToPage(targetPage);
-                    // goToPage 会触发 render，所以后面不需要再手动调 renderCallback
                     setTimeout(() => this.scrollToMatch(targetSongIndex), 300);
                     return;
                 }
@@ -182,7 +188,11 @@ window.ListSearch = {
     },
 
     scrollToMatch: function (index) {
-        const rowId = this.state.id === 'songlist' ? `sl-row-${index}` : `gl-row-${index}`;
+        let rowId;
+        if (this.state.id === 'songlist') rowId = `sl-row-${index}`;
+        else if (this.state.id === 'leaderboard') rowId = `lb-row-${index}`;
+        else rowId = `gl-row-${index}`;
+
         const row = document.getElementById(rowId);
         if (row) {
             row.scrollIntoView({ behavior: 'smooth', block: 'center' });

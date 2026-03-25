@@ -90,7 +90,31 @@ function deselectAll() {
     window.selectedItems.clear();
     window.selectedSongObjects.clear();
 
+    const batchToolbar = document.getElementById('batch-toolbar');
+    const slToolbar = document.getElementById('sl-batch-toolbar');
+    const lbBatchToolbar = document.getElementById('lb-batch-toolbar');
+
+    // updateBatchToolbar() 会被调用，这里也主动清零防遗漏
+    const countEl = document.getElementById('batch-selected-count');
+    const slCountEl = document.getElementById('sl-batch-selected-count');
+    const lbCountEl = document.getElementById('lb-batch-selected-count');
+    if (countEl) countEl.textContent = '0';
+    if (slCountEl) slCountEl.textContent = '0';
+    if (lbCountEl) lbCountEl.textContent = '0';
+
+    if (batchToolbar) batchToolbar.classList.add('hidden');
+    if (slToolbar) slToolbar.classList.add('hidden');
+    if (lbBatchToolbar) lbBatchToolbar.classList.add('hidden');
+
+    // 恢复被隐藏的分页控件 (在排行榜中)
+    const lbPagination = document.getElementById('lb-pagination');
+    if (lbPagination) lbPagination.classList.remove('hidden');
+
+    // 重新渲染UI
     refreshBatchUI();
+    if (window.LeaderboardManager && document.getElementById('view-leaderboard') && !document.getElementById('view-leaderboard').classList.contains('hidden')) {
+        window.LeaderboardManager.renderSongs();
+    }
     updateBatchToolbar();
 }
 
@@ -319,7 +343,21 @@ function changeItemsPerPage(value) {
     if (window.ListSearch) {
         window.ListSearch.config.itemsPerPage = val === 'all' ? 999999 : val;
     }
-    renderResults(window.viewingPlaylist || viewingPlaylist);
+
+    const activeView = (function () {
+        if (document.getElementById('songlist-detail-view') && !document.getElementById('songlist-detail-view').classList.contains('hidden')) return 'collection';
+        if (document.getElementById('view-leaderboard') && !document.getElementById('view-leaderboard').classList.contains('hidden')) return 'leaderboard';
+        return 'search';
+    })();
+
+    if (activeView === 'leaderboard' && window.LeaderboardManager) {
+        window.LeaderboardManager.resetLocalPage();
+        window.LeaderboardManager.renderSongs();
+    } else if (activeView === 'collection' && window.SongListManager) {
+        window.SongListManager.renderCurrentList();
+    } else {
+        renderResults(window.viewingPlaylist || viewingPlaylist);
+    }
 }
 
 // Load settings from localStorage
