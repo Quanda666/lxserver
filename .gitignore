@@ -78,3 +78,5 @@ docs/node_modules
 dist-electron/
 
 old/
+
+.stylelintrc.json

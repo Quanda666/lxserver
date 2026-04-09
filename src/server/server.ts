@@ -774,11 +774,55 @@ const handleStartServer = async (port = 9527, ip = '127.0.0.1') => await new Pro
           return
         }
 
+        const totalMem = os.totalmem()
+        const freeMem = os.freemem()
+
+        // 重新实现更准确的 CPU 使用率计算（支持 Windows）
+        const getSystemCpuUsage = () => {
+          const cpus = os.cpus()
+          let idle = 0; let total = 0
+          cpus.forEach(cpu => {
+            for (const type in cpu.times) { total += (cpu.times as any)[type] }
+            idle += cpu.times.idle
+          })
+          const last = global.lx.lastCpuSample || { idle: 0, total: 0 }
+          const deltaIdle = idle - last.idle
+          const deltaTotal = total - last.total
+          global.lx.lastCpuSample = { idle, total }
+          if (deltaTotal === 0) return '0.00'
+          return (100 * (1 - deltaIdle / deltaTotal)).toFixed(2)
+        }
+
+        const getProcessCpuUsage = () => {
+          const currentUsage = process.cpuUsage()
+          const currentTime = Date.now()
+          const last = global.lx.lastProcessSample || { cpu: process.cpuUsage(), time: Date.now() - 100 }
+          const deltaUsage = {
+            user: currentUsage.user - last.cpu.user,
+            system: currentUsage.system - last.cpu.system,
+          }
+          const deltaTime = (currentTime - last.time) * 1000 // microseconds
+          global.lx.lastProcessSample = { cpu: currentUsage, time: currentTime }
+          if (deltaTime === 0) return '0.00'
+          return ((deltaUsage.user + deltaUsage.system) / deltaTime / os.cpus().length * 100).toFixed(2)
+        }
+
         const status = {
           users: global.lx.config.users.length,
           devices: wss?.clients.size ?? 0,
           uptime: process.uptime(),
-          memory: process.memoryUsage().rss
+          memory: process.memoryUsage().rss,
+          totalMemory: totalMem,
+          freeMemory: freeMem,
+          systemMemoryUsage: ((totalMem - freeMem) / totalMem * 100).toFixed(2),
+          processMemoryUsage: (process.memoryUsage().rss / totalMem * 100).toFixed(2),
+          cpuUsage: getSystemCpuUsage(),
+          processCpuUsage: getProcessCpuUsage(),
+          osUptime: os.uptime(),
+          cpus: os.cpus().length,
+          cpuModel: os.cpus()[0]?.model || 'Unknown',
+          cpuSpeed: os.cpus()[0]?.speed || 0,
+          isWebDAVConfigured: !!(global.lx.config['webdav.url'] && global.lx.config['webdav.username']),
         }
 
         res.writeHead(200, {
