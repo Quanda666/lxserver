@@ -2898,6 +2898,38 @@
                                         </div>
                                     </div>
 
+                                    <!-- SMTC Lyric Display -->
+                                    <div
+                                        class="t-bg-panel rounded-xl border t-border-main p-4 hover:shadow-sm transition-shadow">
+                                        <div class="flex items-center justify-between">
+                                            <div>
+                                                <h4 class="text-sm font-bold t-text-main flex items-center">
+                                                    SMTC 歌词显示 (SMTC Lyric Display)
+                                                    <span class="setting-tooltip-trigger">
+                                                        <i class="fas fa-question-circle"></i>
+                                                        <span class="setting-tooltip-content">
+                                                            将当前播放的歌词行实时写入系统媒体控制 (SMTC/MediaSession) 的标题字段，使 Windows
+                                                            任务栏、系统通知中心等能同步显示当前歌词。<br>
+                                                            <span class="text-emerald-500 font-medium">* 原理：利用 Web Media
+                                                                Session API 高频更新
+                                                                <code>metadata.title</code>
+                                                                为当前歌词行，标题会随歌词进度自动滚动。<br>
+                                                                关闭后恢复显示原始歌曲名称。</span>
+                                                        </span>
+                                                    </span>
+                                                </h4>
+                                            </div>
+                                            <label class="relative inline-flex items-center cursor-pointer">
+                                                <input type="checkbox" id="setting-enable-smtc-lyric"
+                                                    class="sr-only peer"
+                                                    onchange="updateSetting('enableSmtcLyric', this.checked)">
+                                                <div
+                                                    class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500 transition-all">
+                                                </div>
+                                            </label>
+                                        </div>
+                                    </div>
+
                                     <!-- Keyboard Shortcuts -->
                                     <div
                                         class="t-bg-panel rounded-xl border t-border-main p-4 hover:shadow-sm transition-shadow">

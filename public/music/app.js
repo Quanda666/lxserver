@@ -90,6 +90,7 @@ const DEFAULT_SETTINGS = {
     enableAutoSwitchSource: true, // 自动尝试换源 (默认开启)
     enableAutoSkipOnError: true, // 失败自动下一曲 (默认开启)
     enablePreloader: true, // 预读机制 (默认开启)
+    enableSmtcLyric: true, // SMTC 歌词显示 (默认开启)
     // Visualizer Settings (Refactored)
     showFooterVisualizer: true,
     footerVisualizerStyle: 'bars',
@@ -956,7 +957,10 @@ window.clearQueue = clearQueue;
 
 // Search Logic
 function handleSearchKeyPress(e) {
-    if (e.key === 'Enter') doSearch();
+    if (e.key === 'Enter') {
+        if (typeof hideSearchSuggestions === 'function') hideSearchSuggestions();
+        doSearch();
+    }
 }
 
 /**
@@ -1002,6 +1006,9 @@ const SOURCES = ['kw', 'kg', 'tx', 'wy', 'mg'];
 
 //搜索歌曲
 async function doSearch(page = 1, append = false) {
+    // 触发搜索时隐藏联想词
+    if (typeof hideSearchSuggestions === 'function') hideSearchSuggestions();
+
     // 只有在开启全新搜索（第一页且非追加模式）时才重置局部过滤状态
     if (window.ListSearch && page === 1 && !append) window.ListSearch.resetState();
 
@@ -3985,6 +3992,19 @@ const SETTINGS_UI_MAP = {
     enableAutoSwitchSource: { id: 'setting-auto-switch-source', type: 'checkbox' },
     enableAutoSkipOnError: { id: 'setting-auto-skip-on-error', type: 'checkbox' },
     enablePreloader: { id: 'setting-enable-preloader', type: 'checkbox' },
+    enableSmtcLyric: {
+        id: 'setting-enable-smtc-lyric',
+        type: 'checkbox',
+        action: (v) => {
+            // 关闭时立即恢复 MediaSession title / artist 为歌曲名 / 歌手名
+            if (!v && 'mediaSession' in navigator && navigator.mediaSession.metadata && currentPlayingSong) {
+                try {
+                    navigator.mediaSession.metadata.title = currentPlayingSong.name;
+                    navigator.mediaSession.metadata.artist = currentPlayingSong.singer;
+                } catch (e) { /* ignore */ }
+            }
+        }
+    },
     downloadConcurrency: {
         id: 'setting-download-concurrency',
         type: 'value',
@@ -4044,8 +4064,11 @@ const SETTINGS_UI_MAP = {
         id: 'setting-enable-lyric-glow',
         type: 'checkbox',
         action: (v) => {
+            // 同时更新歌词详情容器和歌词内容容器，实现实时生效
             const dv = document.getElementById('view-player-detail');
             if (dv) v ? dv.classList.add('enable-lyric-glow') : dv.classList.remove('enable-lyric-glow');
+            const lc = document.getElementById('lyric-content');
+            if (lc) v ? lc.classList.add('enable-lyric-glow') : lc.classList.remove('enable-lyric-glow');
         }
     },
     playerBackground: {
@@ -5199,6 +5222,24 @@ function syncLyricByLineNum(lineNum) {
         // Add active class to current line
         if (lineNum >= 0 && lineNum < lines.length) {
             lines[lineNum].classList.add('active');
+        }
+
+        // SMTC 歌词显示：将当前歌词行写入 MediaSession metadata.title，artist 显示「歌曲名 - 歌手名」
+        if ('mediaSession' in navigator && navigator.mediaSession.metadata && settings.enableSmtcLyric) {
+            try {
+                const lyricText = (lineNum >= 0 && currentLyricLines && currentLyricLines[lineNum])
+                    ? currentLyricLines[lineNum].text
+                    : '';
+                const song = currentPlayingSong;
+                const songTitle = song ? song.name : '';
+                navigator.mediaSession.metadata.title = lyricText || songTitle;
+                // artist 字段保留「歌曲名 - 歌手名」，让用户知道当前播放的歌曲
+                if (song) {
+                    navigator.mediaSession.metadata.artist = `${song.name} - ${song.singer}`;
+                }
+            } catch (e) {
+                // ignore
+            }
         }
     }
 
