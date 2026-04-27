@@ -26,13 +26,13 @@ RUN apk add --update --no-cache nodejs \
 COPY --from=builder ./source-code/build-output ./
 
 VOLUME /server/data
-ENV DATA_PATH '/server/data'
-ENV LOG_PATH '/server/data/logs'
+ENV DATA_PATH='/server/data'
+ENV LOG_PATH='/server/data/logs'
 
 EXPOSE 9527
-ENV NODE_ENV 'production'
-ENV PORT 9527
-ENV BIND_IP '0.0.0.0'
+ENV NODE_ENV='production'
+ENV PORT=9527
+ENV BIND_IP='0.0.0.0'
 # ENV PROXY_HEADER 'x-real-ip'
 # ENV SERVER_NAME 'My Sync Server'
 # ENV MAX_SNAPSHOT_NUM '10'
