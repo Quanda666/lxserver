@@ -8,7 +8,7 @@ const MUSICU_URL = 'https://u.y.qq.com/cgi-bin/musicu.fcg'
 const getAlbumSongsApi = async (albummid) => {
     return httpFetch(`https://i.y.qq.com/v8/fcg-bin/fcg_v8_album_info_cp.fcg?platform=h5page&albummid=${albummid}&g_tk=938407465&uin=0&format=json&inCharset=utf-8&outCharset=utf-8&notice=0&platform=h5&needNewCode=1&_=1459961045571`).promise.then(({ body }) => {
         if (body.code !== 0) throw new Error('Get TX album songs failed: ' + body.code)
-        return body.data && body.data.list ? body.data.list : []
+        return body.data || {}
     })
 }
 
@@ -60,8 +60,8 @@ export default {
                 name: item.info.name,
                 img: item.info.img,
                 singer: item.info.author,
-                publishTime: '', // TX返回数据中通常没有明确包含，可在需要时从原接口挖掘
-                total: item.count,
+                publishTime: item.info.publishTime,
+                total: item.total,
                 source: 'tx',
             }))
 
@@ -78,14 +78,10 @@ export default {
      * @param {string} id 专辑 MID
      */
     getAlbumSongs(id) {
-        return getAlbumSongsApi(id).then(list => {
+        return getAlbumSongsApi(id).then(data => {
+            const list = data.list || []
             const formattedList = list.map(item => {
-                // 由于返回结构不一定带 songInfo 嵌套，我们需要模拟类似 singer.filterMusicInfoItem 的入参，或直接用它处理包装项
-                // tx album 接口返回的是单纯的 item 对象，包含 songname, songmid 等
-                // 为了兼容 tx sdk 中大量依赖的 item.file 等结构，这里我们必须把它转成 tx/singer 期望的格式，再调用 filter
-                // 不过由于 filterMusicInfoItem 依赖复杂的数据，更安全的做法是借用或者精简实现一次
-
-                // 我们利用 tx/singer 中暴露的 filterMusicInfoItem 工具函数，但需构建对应的对象结构
+                // ... (原有映射逻辑保持不变)
                 return filterMusicInfoItem({
                     id: item?.songid,
                     mid: item?.songmid,
@@ -110,6 +106,8 @@ export default {
             return {
                 list: formattedList,
                 total: formattedList.length,
+                name: data.name,
+                publishTime: data.aDate,
                 source: 'tx',
             }
         })

@@ -64,7 +64,7 @@ export default {
                     name: item.name,
                     img: item.picUrl,
                     singer: formatSingerName(item.artists),
-                    publishTime: new Date(item.publishTime).toLocaleDateString(),
+                    publishTime: item.publishTime ? new Date(item.publishTime).toISOString().split('T')[0] : undefined,
                     total: item.size,
                 })),
                 total: body.artist ? body.artist.albumSize : (body.hotAlbums ? body.hotAlbums.length : 0),
@@ -104,6 +104,8 @@ export default {
                     privileges: songs.map(s => s.privilege || { id: s.id })
                 }),
                 total: songs.length,
+                name: body.album ? body.album.name : undefined,
+                publishTime: body.album ? new Date(body.album.publishTime).toISOString().split('T')[0] : undefined,
                 source: 'wy',
             }
         })

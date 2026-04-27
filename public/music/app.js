@@ -2711,8 +2711,8 @@ function getSourceName(source) {
 }
 
 /**
- * 统一应用代理逻辑，处理 HTTPS 环境下的 HTTP 链接
- * 增强：优先尝试将 HTTP 升级为 HTTPS 并探测可用性，失败后再回退到服务器代理
+ * 统一应用代理逻辑，处理 HTTPS 环境下的 HTTP 链接及跨域限制 (CORS) 问题
+ * 增强：开启自动代理后，通过探测链接可用性（包括跨域兼容性）来自动决定是否启用服务器代理
  */
 async function applyAutoProxy(url, song) {
     if (!url) return url;
@@ -2738,43 +2738,45 @@ async function applyAutoProxy(url, song) {
     const isHttpsEnv = window.location.protocol === 'https:';
     const isHttpLink = url.startsWith('http://');
 
-    // 优先级 2：HTTPS 环境下遇到 HTTP 链接的自动处理 (探测升级或自动代理)
-    if (isHttpsEnv && isHttpLink) {
-        // 尝试自动升级协议，减少代理开销
-        const httpsUrl = url.replace('http://', 'https://');
-        console.log(`[Proxy] HTTPS environment detected HTTP link, probing upgrade: ${song.name}`);
+    // 优先级 2：自动检测并处理跨域风险 (CORS) 或 混合内容 (Mixed Content)
+    if (settings.enableAutoProxy) {
+        // 探测流程：检测该 URL 是否能被当前浏览器直接访问
+        // 如果是 HTTPS 环境下的 HTTP 链接，先尝试升级 https 探测，否则直接探测原链接
+        const probeUrl = (isHttpsEnv && isHttpLink) ? url.replace('http://', 'https://') : url;
+
+        console.log(`[Proxy] Auto-proxy evaluating (CORS/Safety probe): ${song.name}`);
 
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 2000); // 2秒探测超时
 
-            const response = await fetch(httpsUrl, {
+            // 如果此处 fetch 报错（如 CORS policy block），则会进入 catch
+            const response = await fetch(probeUrl, {
                 method: 'GET',
-                headers: { 'Range': 'bytes=0-1' },
+                headers: { 'Range': 'bytes=0-1' }, // 轻量探测
                 signal: controller.signal
             });
             clearTimeout(timeoutId);
 
             if (response.ok) {
-                console.log(`[Proxy] HTTPS Upgrade Success: ${song.name}`);
-                return httpsUrl;
+                console.log(`[Proxy] Probe Success (Direct Play): ${song.name} via ${probeUrl}`);
+                return probeUrl;
             }
         } catch (e) {
-            console.warn(`[Proxy] HTTPS Probe failed, falling back to auto-proxy: ${song.name}`);
+            // 探测失败：可能是跨域拦截、证书错误、或者源不支持 HTTPS
+            console.warn(`[Proxy] Probe failed (CORS risk or unreachable), falling back to server proxy: ${song.name}`, e.message);
         }
 
-        // 探测失败，如果开启了“自动代理”，则走服务器代理以通过 Mixed Content 检查
-        if (settings.enableAutoProxy) {
-            // 优先使用自定义代理（客户端直接请求，不经服务器中转）
-            if (settings.enableCustomProxy && settings.customProxyUrl) {
-                const proxyUrl = settings.customProxyUrl.replace('{url}', url);
-                console.log(`[Proxy] Custom proxy applied: ${song.name} -> ${proxyUrl}`);
-                return proxyUrl;
-            }
-            console.log(`[Proxy] Auto-proxying via server: ${song.name}`);
-            const filename = `${song.singer} - ${song.name}.mp3`;
-            return `/api/music/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}&inline=1`;
+        // 回退逻辑：探测失败后根据设置启用自定义代理或服务器代理
+        if (settings.enableCustomProxy && settings.customProxyUrl) {
+            const proxyUrl = settings.customProxyUrl.replace('{url}', url);
+            console.log(`[Proxy] Custom proxy fallback: ${song.name} -> ${proxyUrl}`);
+            return proxyUrl;
         }
+
+        console.log(`[Proxy] Server proxy fallback: ${song.name}`);
+        const filename = `${song.singer} - ${song.name}.mp3`;
+        return `/api/music/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}&inline=1`;
     }
 
     return url;
@@ -5729,6 +5731,8 @@ window.togglePlay = togglePlay;
 window.playNext = playNext;
 window.changeProxyPlayback = changeProxyPlayback;
 window.changeProxyDownload = changeProxyDownload;
+window.changeAutoProxy = changeAutoProxy;
+window.changeHotSearchLimit = changeHotSearchLimit;
 window.resetAllSettings = resetAllSettings;
 window.clearCache = clearCache;
 window.updateServerCacheSize = updateServerCacheSize;

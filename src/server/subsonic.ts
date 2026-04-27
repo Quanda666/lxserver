@@ -662,6 +662,7 @@ class SubsonicHandler {
 
         let musics: LX.Music.MusicInfo[] = []
         let listName = 'Unknown'
+        let albumPublishTime: string | undefined
 
         if (id === 'love') {
             musics = listData.loveList
@@ -676,6 +677,7 @@ class SubsonicHandler {
             const album = libAlbums.find((a: any) => String(a.id) === realId || String(a.meta?.albumId) === realId)
             if (album) {
                 listName = album.name
+                albumPublishTime = album.publishTime
                 // library 歌曲是原始字段，需要映射成 MusicInfo 兼容格式
                 musics = (album.list || []).map((s: any) => ({
                     id: `${s.source}_${s.songmid || s.songId}`,
@@ -776,6 +778,7 @@ class SubsonicHandler {
                     }))
                     // [优化] 如果数据里没带专辑名，从第一首歌里提取
                     listName = data.name || (musics[0] as any)?.albumName || (musics[0] as any)?.meta?.albumName || 'Album Detail'
+                    albumPublishTime = data.publishTime
                 } catch (e: any) {
                     console.error(`[Subsonic] SDK getAlbumSongs error for ${id}:`, e?.message)
                 }
@@ -841,6 +844,7 @@ class SubsonicHandler {
             coverArt: (musics[0] as any)?.meta?.picUrl || (musics[0] as any)?.img || id,
             isDir: true,
             playCount: 0,
+            year: albumPublishTime ? parseInt(albumPublishTime.split(/[/-]/)[0]) : ((musics[0] as any)?.year || (musics[0] as any)?.meta?.year),
         }
 
         if (format === 'json') {
@@ -1048,6 +1052,7 @@ class SubsonicHandler {
                     duration: (album.list || []).reduce((s: number, m: any) => s + this.parseDuration(m.interval), 0),
                     created: new Date().toISOString(),
                     playCount: 0,
+                    year: album.publishTime ? parseInt(String(album.publishTime).split(/[/-]/)[0]) : undefined,
                 }
             }
 
@@ -1210,6 +1215,7 @@ class SubsonicHandler {
                     songCount: alb.total || 0,
                     coverArt: alb.img || alb.picUrl || resolvedId,
                     isDir: true,
+                    year: alb.publishTime ? parseInt(String(alb.publishTime).split(/[/-]/)[0]) : undefined,
                 }))
 
                 hotSongs = allSongsRaw.map((s: any) => ({

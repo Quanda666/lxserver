@@ -219,6 +219,7 @@ export default {
           author: item.singer_name || item.singerName,
           img: `https://y.gtimg.cn/music/photo_new/T002R500x500M000${item.album_mid || item.albumMid}.jpg`,
           desc: null,
+          publishTime: item.pub_time || '',
         },
       }
     })
